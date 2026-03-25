@@ -1,6 +1,6 @@
 # @terra-graph/core
 
-Core graph engine for terra-graph. This package contains the canonical graph model, importers, adapters, rule engine, runtime catalog, and renderers. It is intentionally CLI-agnostic.
+Core graph engine for terra-graph. This package contains the canonical graph model, importers, adapters, rule engine, runtime catalog, and renderers.
 
 **Principles**
 - `TgGraph` is the source of truth for graph data.
