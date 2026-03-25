@@ -1,0 +1,107 @@
+{
+  "name": "@terra-graph/core",
+  "author": {
+    "name": "Kevin Baldwyn",
+    "url": "https://github.com/terra-graph/core"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/terra-graph/core.git"
+  },
+  "version": "0.1.0",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "type": "module",
+  "files": [
+    "./dist/"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "default": "./dist/esm/index.js"
+    },
+    "./*.js": {
+      "types": "./dist/esm/*.d.ts",
+      "import": "./dist/esm/*.js",
+      "require": "./dist/cjs/*.js",
+      "default": "./dist/esm/*.js"
+    }
+  },
+  "scripts": {
+    "build": "(rm -r ./dist || true) && yarn lint && yarn build:ci",
+    "build:ci": "tsc -p tsconfig.json && tsc -p tsconfig-commonjs.json && printf '{ \"type\": \"commonjs\" }' > dist/cjs/package.json",
+    "build:nolint": "(rm -r ./dist || true) && yarn build:ci",
+    "lint": "biome check --write",
+    "lint:ci": "biome check",
+    "test": "jest --coverage",
+    "test:watch": "yarn test --watchAll"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@jest/types": "^30.2.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.0",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/npm": "^12.0.1",
+    "@semantic-release/release-notes-generator": "^14.0.2",
+    "@types/graphlib-dot": "^0.6.4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.10.0",
+    "conventional-changelog-conventionalcommits": "^9.1.0",
+    "graphology-types": "^0.24.8",
+    "jest": "^30.2.0",
+    "jest-mock-extended": "^4.0.0",
+    "semantic-release": "^24.2.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "graphlib-dot": "^0.6.4",
+    "graphology": "^0.26.0",
+    "yaml": "^2.8.2",
+    "zod": "^3.24.1"
+  },
+  "release": {
+    "branches": [
+      "main",
+      {
+        "name": "rc/*",
+        "prerelease": "rc"
+      },
+      {
+        "name": "1.x",
+        "range": "1.x",
+        "channel": "1.x"
+      }
+    ],
+    "plugins": [
+      [
+        "@semantic-release/commit-analyzer",
+        {
+          "preset": "conventionalcommits"
+        }
+      ],
+      "@semantic-release/release-notes-generator",
+      [
+        "@semantic-release/changelog",
+        {
+          "changelogFile": "CHANGELOG.md"
+        }
+      ],
+      "@semantic-release/npm",
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "package.json",
+            "CHANGELOG.md"
+          ],
+          "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        }
+      ]
+    ]
+  }
+}
