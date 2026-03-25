@@ -86,7 +86,12 @@
           "changelogFile": "CHANGELOG.md"
         }
       ],
-      "@semantic-release/npm",
+      [
+        "@semantic-release/npm",
+        {
+          "access": "public"
+        }
+      ],
       [
         "@semantic-release/git",
         {
