@@ -1,3 +1,10 @@
+# [1.0.0-rc.4](https://github.com/terra-graph/core/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-03-25)
+
+
+### Bug Fixes
+
+* force release ([268df68](https://github.com/terra-graph/core/commit/268df687aeaa3458846285104ff75e3082474e88))
+
 # [1.0.0-rc.3](https://github.com/terra-graph/core/compare/v1.0.0-rc.2...v1.0.0-rc.3) (2026-03-25)
 
 
