@@ -1266,7 +1266,9 @@ describe('DotRenderer.toDotEdgeAttributes', () => {
   it('shoud apply legend colour to dot edge attributes', () => {
     const renderer = new DotRenderer();
     const subject = renderer as unknown as {
-      toDotEdgeAttributes: (edge: TgGraph['edges'][number]) => Record<string, unknown>;
+      toDotEdgeAttributes: (
+        edge: TgGraph['edges'][number],
+      ) => Record<string, unknown>;
     };
 
     const edge = {
@@ -1290,7 +1292,9 @@ describe('DotRenderer.toDotEdgeAttributes', () => {
   it('shoud return adapter attributes when no legend is present', () => {
     const renderer = new DotRenderer();
     const subject = renderer as unknown as {
-      toDotEdgeAttributes: (edge: TgGraph['edges'][number]) => Record<string, unknown>;
+      toDotEdgeAttributes: (
+        edge: TgGraph['edges'][number],
+      ) => Record<string, unknown>;
     };
 
     const edge = {
