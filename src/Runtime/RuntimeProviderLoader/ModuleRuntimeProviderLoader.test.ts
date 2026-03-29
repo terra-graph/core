@@ -1,11 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { Module } from 'node:module';
+import { mkdir, mkdtemp, rm, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-  ModuleRuntimeProviderLoader,
-  __test__,
-} from './ModuleRuntimeProviderLoader.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { ModuleRuntimeProviderLoader } from './ModuleRuntimeProviderLoader.js';
 
 describe('ModuleRuntimeProviderLoader.load', () => {
   it('shoud load a provider from a module default object export', async () => {
@@ -59,9 +57,12 @@ describe('ModuleRuntimeProviderLoader.load', () => {
   });
 
   it('shoud accept raw runtime providers without module export markers', async () => {
-    const provider = {} as Parameters<typeof __test__.toProvider>[0];
-
-    await expect(__test__.toProvider(provider)).resolves.toBe(provider);
+    const provider = {} as Parameters<
+      (typeof ModuleRuntimeProviderLoader)['prototype']['toProvider']
+    >[0];
+    const loader = new ModuleRuntimeProviderLoader();
+    // @ts-expect-error accessing private method for test coverage
+    await expect(loader.toProvider(provider)).resolves.toBe(provider);
   });
 
   it('shoud load a provider from a default function export', async () => {
@@ -169,6 +170,214 @@ describe('ModuleRuntimeProviderLoader.load', () => {
           : [],
       ).toContain('RelativeProvider');
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve package providers from sourceReference', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'package-provider');
+    const configPath = join(dir, 'runtime.yml');
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'package-provider',
+        exports: {
+          import: './index.cjs',
+          require: './index.cjs',
+          default: './index.cjs',
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.cjs'),
+      'module.exports = { supportedAdapterOperationsRegistry: { FromPackage: class FromPackage {} } };',
+      'utf8',
+    );
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({
+        specifier: 'package-provider',
+        sourceReference: configPath,
+      });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('FromPackage');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve package providers from cwd when no reference is provided', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'cwd-provider');
+    const originalCwd = process.cwd();
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'cwd-provider',
+        exports: {
+          import: './index.cjs',
+          require: './index.cjs',
+          default: './index.cjs',
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.cjs'),
+      'module.exports = { supportedAdapterOperationsRegistry: { FromCwdPackage: class FromCwdPackage {} } };',
+      'utf8',
+    );
+
+    try {
+      process.chdir(dir);
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({ specifier: 'cwd-provider' });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('FromCwdPackage');
+    } finally {
+      process.chdir(originalCwd);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve ESM-only package specifiers without loading', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'esm-only');
+    const configPath = join(dir, 'runtime.yml');
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'esm-only',
+        type: 'module',
+        exports: {
+          import: './index.mjs',
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.mjs'),
+      'export default {};',
+      'utf8',
+    );
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      // @ts-expect-error accessing private method for test coverage
+      const resolved = loader.resolveImportSpecifier('esm-only', configPath);
+      const resolvedPath = await realpath(fileURLToPath(resolved));
+      const expectedPath = await realpath(join(packageDir, 'index.mjs'));
+      expect(resolvedPath).toBe(expectedPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve package providers from file URL sourceReference', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'file-url-provider');
+    const configPath = join(dir, 'runtime.yml');
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'file-url-provider',
+        exports: {
+          import: './index.cjs',
+          require: './index.cjs',
+          default: './index.cjs',
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.cjs'),
+      'module.exports = {};',
+      'utf8',
+    );
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      // @ts-expect-error accessing private method for test coverage
+      const resolved = loader.resolveImportSpecifier(
+        'file-url-provider',
+        pathToFileURL(configPath).href,
+      );
+      const resolvedPath = await realpath(fileURLToPath(resolved));
+      const expectedPath = await realpath(join(packageDir, 'index.cjs'));
+      expect(resolvedPath).toBe(expectedPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud fall back to specifier when package cannot be resolved', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const configPath = join(dir, 'runtime.yml');
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      // @ts-expect-error accessing private method for test coverage
+      const resolved = loader.resolveImportSpecifier(
+        'missing-package',
+        configPath,
+      );
+      expect(resolved).toBe('missing-package');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud fall back when module resolve APIs are unavailable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const configPath = join(dir, 'runtime.yml');
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    const moduleApi = Module as typeof Module & {
+      _resolveFilename?: unknown;
+      _nodeModulePaths?: unknown;
+    };
+    const originalResolve = moduleApi._resolveFilename;
+    const originalPaths = moduleApi._nodeModulePaths;
+
+    try {
+      moduleApi._resolveFilename = undefined;
+      moduleApi._nodeModulePaths = undefined;
+
+      const loader = new ModuleRuntimeProviderLoader();
+      // @ts-expect-error accessing private method for test coverage
+      const resolved = loader.resolveImportSpecifier(
+        'missing-package',
+        configPath,
+      );
+      expect(resolved).toBe('missing-package');
+    } finally {
+      moduleApi._resolveFilename = originalResolve;
+      moduleApi._nodeModulePaths = originalPaths;
       await rm(dir, { recursive: true, force: true });
     }
   });
