@@ -1,3 +1,10 @@
+# [1.0.0-rc.5](https://github.com/terra-graph/core/compare/v1.0.0-rc.4...v1.0.0-rc.5) (2026-03-29)
+
+
+### Features
+
+* added external module loading for providers ([090fac2](https://github.com/terra-graph/core/commit/090fac2ba5beda79a2b4aeb62518c95bf7dacdb3))
+
 # [1.0.0-rc.4](https://github.com/terra-graph/core/compare/v1.0.0-rc.3...v1.0.0-rc.4) (2026-03-25)
 
 
