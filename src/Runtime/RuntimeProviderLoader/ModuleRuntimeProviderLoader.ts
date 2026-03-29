@@ -92,9 +92,8 @@ export class ModuleRuntimeProviderLoader implements RuntimeProviderLoader {
       if (!sourceReference) {
         return pathToFileURL(resolvePath(specifier)).href;
       }
-      return pathToFileURL(
-        resolvePath(dirname(sourceReference), specifier),
-      ).href;
+      return pathToFileURL(resolvePath(dirname(sourceReference), specifier))
+        .href;
     }
 
     if (isBuiltin(specifier)) {

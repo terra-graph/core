@@ -1,5 +1,5 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { Module } from 'node:module';
-import { mkdir, mkdtemp, rm, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
