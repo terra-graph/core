@@ -214,15 +214,14 @@ ${legendRows}
 
     return `${output.slice(0, firstBrace + 1)}\n${keySubgraph}\n${output.slice(
       firstBrace + 1,
-    )}`;
-  }
-
-  private buildNodeLabel(node: TgNode): string {
-    return new TgNodeLabel(node)
-      .getLabel()
+    )}`
       .replace(/"\s*<</g, '<<')
       .replace(/>>\s*"/g, '>>')
       .replaceAll('\\"', '"');
+  }
+
+  private buildNodeLabel(node: TgNode): string {
+    return new TgNodeLabel(node).getLabel();
   }
 
   private static resolveGraphOptions(

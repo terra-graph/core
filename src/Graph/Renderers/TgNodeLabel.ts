@@ -21,10 +21,6 @@ export class TgNodeLabel {
   }
 
   public getLabel(): string {
-    if (this.node.hints?.label?.overwriteTo) {
-      return this.node.hints?.label?.overwriteTo;
-    }
-
     const { resourceName, name } = this.getLabelComponents();
     const kind = this.node.terraform?.kind;
     const parentModuleName = this.node.terraform?.parentModuleName ?? '';

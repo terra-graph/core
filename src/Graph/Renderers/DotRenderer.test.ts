@@ -1083,27 +1083,6 @@ describe('DotRenderer.buildNodeLabel', () => {
 
     expect(subject.buildNodeLabel(node)).toBe('node-e');
   });
-
-  it('shoud strip quoted html labels with whitespace padding', () => {
-    const renderer = new DotRenderer();
-    const subject = renderer as unknown as {
-      buildNodeLabel: (node: TgNode) => string;
-    };
-
-    const node: TgNode = {
-      id: asNodeId('node-html'),
-      hints: {
-        label: {
-          overwriteTo:
-            '"\n  <<table><tr><td>\\"hello\\"</td></tr></table>>\n  "',
-        },
-      },
-    };
-
-    expect(subject.buildNodeLabel(node)).toBe(
-      '<<table><tr><td>"hello"</td></tr></table>>',
-    );
-  });
 });
 
 describe('DotRenderer.applyLegend', () => {
@@ -1147,6 +1126,32 @@ describe('DotRenderer.applyLegend', () => {
 
     expect(next).toContain('cluster_Legend');
     expect(next).toContain('Owner:');
+  });
+
+  it('shoud strip quoted html labels with whitespace padding', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      applyLegend: (output: string, tg: TgGraph) => string;
+    };
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {
+        Environment: 'test',
+      },
+      nodes: {},
+      edges: [],
+    };
+
+    const output = `digraph { "node-html" [label="
+  <<table><tr><td>\\\"hello\\\"</td></tr></table>>
+  "]; }`;
+    const next = subject.applyLegend(output, tg);
+
+    expect(next).toContain('label=<<table><tr><td>"hello"</td></tr></table>>');
+    expect(next).not.toContain(
+      'label="\n  <<table><tr><td>\\"hello\\"</td></tr></table>>\n  "',
+    );
   });
 });
 
