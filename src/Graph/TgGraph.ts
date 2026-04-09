@@ -95,6 +95,7 @@ export type TgNodeTerraform = {
 
 export type TgNodeLabelHints = {
   end?: string;
+  overwriteTo?: string;
 };
 
 export type TgNodeHints = {

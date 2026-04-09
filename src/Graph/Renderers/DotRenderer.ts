@@ -218,7 +218,11 @@ ${legendRows}
   }
 
   private buildNodeLabel(node: TgNode): string {
-    return new TgNodeLabel(node).getLabel();
+    return new TgNodeLabel(node)
+      .getLabel()
+      .replace(/"\s*<</g, '<<')
+      .replace(/>>\s*"/g, '>>')
+      .replaceAll('\\"', '"');
   }
 
   private static resolveGraphOptions(

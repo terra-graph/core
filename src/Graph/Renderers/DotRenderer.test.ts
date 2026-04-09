@@ -1083,6 +1083,27 @@ describe('DotRenderer.buildNodeLabel', () => {
 
     expect(subject.buildNodeLabel(node)).toBe('node-e');
   });
+
+  it('shoud strip quoted html labels with whitespace padding', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      buildNodeLabel: (node: TgNode) => string;
+    };
+
+    const node: TgNode = {
+      id: asNodeId('node-html'),
+      hints: {
+        label: {
+          overwriteTo:
+            '"\n  <<table><tr><td>\\"hello\\"</td></tr></table>>\n  "',
+        },
+      },
+    };
+
+    expect(subject.buildNodeLabel(node)).toBe(
+      '<<table><tr><td>"hello"</td></tr></table>>',
+    );
+  });
 });
 
 describe('DotRenderer.applyLegend', () => {
