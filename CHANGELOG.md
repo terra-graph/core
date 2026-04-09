@@ -1,3 +1,10 @@
+# [1.0.0-rc.8](https://github.com/terra-graph/core/compare/v1.0.0-rc.7...v1.0.0-rc.8) (2026-04-09)
+
+
+### Bug Fixes
+
+* missing export ([4a28193](https://github.com/terra-graph/core/commit/4a2819388518d501f0ebc6ebf625aa6d5970cb69))
+
 # [1.0.0-rc.7](https://github.com/terra-graph/core/compare/v1.0.0-rc.6...v1.0.0-rc.7) (2026-04-09)
 
 
