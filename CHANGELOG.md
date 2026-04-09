@@ -1,3 +1,10 @@
+# [1.0.0-rc.6](https://github.com/terra-graph/core/compare/v1.0.0-rc.5...v1.0.0-rc.6) (2026-04-09)
+
+
+### Features
+
+* allow force overwriting the dot label ([9cc5876](https://github.com/terra-graph/core/commit/9cc58766c399b06670d72cf08951f913111237b4))
+
 # [1.0.0-rc.5](https://github.com/terra-graph/core/compare/v1.0.0-rc.4...v1.0.0-rc.5) (2026-03-29)
 
 
