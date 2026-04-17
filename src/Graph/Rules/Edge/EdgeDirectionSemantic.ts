@@ -1,18 +1,16 @@
 import { AdapterOperations } from '../../Operations/Operations.js';
-import {
-  NodeId,
-  TgEdgeDirectionSemantic,
-  TgNodeAttributes,
-  isTgEdgeDirectionSemantic,
-} from '../../TgGraph.js';
+import { NodeId, TgNodeAttributes } from '../../TgGraph.js';
 import { EdgeRule } from '../Rule.js';
 import { EdgeRuleConfig } from '../RuleConfig.js';
 
 type EdgeDirectionSemanticOptions = {
-  semantic: TgEdgeDirectionSemantic;
+  semantic: string;
   overwrite?: boolean;
   enforceDirection?: boolean;
 };
+
+const isNonEmptySemantic = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
 
 export class EdgeDirectionSemantic extends EdgeRule {
   constructor(config: EdgeRuleConfig) {
@@ -23,7 +21,7 @@ export class EdgeDirectionSemantic extends EdgeRule {
     }
 
     const options = config.options as Partial<EdgeDirectionSemanticOptions>;
-    if (!isTgEdgeDirectionSemantic(options.semantic)) {
+    if (!isNonEmptySemantic(options.semantic)) {
       throw new Error(
         `Rule '${EdgeDirectionSemantic.name}' requires options.semantic`,
       );

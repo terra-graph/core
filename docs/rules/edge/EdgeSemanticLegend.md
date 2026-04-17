@@ -13,7 +13,8 @@ Supports: `Any adapter`
 - `options.overwrite`: Optional boolean to overwrite existing legends.
 
 **Options**
-- Required. `legendBySemantic` keys must be valid semantics.
+- Required. `legendBySemantic` keys must be non-empty strings.
+- Optional defaults are available as `DefaultEdgeDirectionSemantics` from `@terra-graph/core`.
 
 **Behavior**
 - Only applies to edges that already have a `directionSemantic`.

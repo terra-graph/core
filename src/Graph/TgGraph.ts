@@ -43,34 +43,8 @@ export type TgEdgeRenderHints = {
   name: string;
 };
 
-export const TgEdgeDirectionSemantics = {
-  Invokes: 'invokes',
-  Accesses: 'accesses',
-  Publishes: 'publishes',
-  Triggers: 'triggers',
-  Routes: 'routes',
-  Authorizes: 'authorizes',
-  ObservedBy: 'observedBy',
-} as const;
-
-export type TgEdgeDirectionSemantic =
-  (typeof TgEdgeDirectionSemantics)[keyof typeof TgEdgeDirectionSemantics];
-
-export const TG_EDGE_DIRECTION_SEMANTICS = Object.freeze(
-  Object.values(TgEdgeDirectionSemantics),
-) as readonly TgEdgeDirectionSemantic[];
-
-export const isTgEdgeDirectionSemantic = (
-  value: unknown,
-): value is TgEdgeDirectionSemantic => {
-  return (
-    typeof value === 'string' &&
-    TG_EDGE_DIRECTION_SEMANTICS.includes(value as TgEdgeDirectionSemantic)
-  );
-};
-
 export interface TgEdgeAttributes extends Record<string, unknown> {
-  directionSemantic?: TgEdgeDirectionSemantic;
+  directionSemantic?: string;
   legend?: TgEdgeLegendAttribute;
   renderHints?: TgEdgeRenderHints;
   adapter?: Record<string, Record<string, unknown>>;
@@ -101,12 +75,6 @@ export type TgNodeHints = {
   label?: TgNodeLabelHints;
 };
 
-// probably DOT / graphviz  specific
-// export type TgGraphRank = {
-//   rankmode: string;
-//   nodes: string[];
-// };
-
 export type TgNodeAttributes = {
   terraform?: TgNodeTerraform;
   hints?: TgNodeHints;
@@ -115,24 +83,16 @@ export type TgNodeAttributes = {
 };
 
 export type TgNode = {
-  //   shape: string; I think this is a rendering concern
-  //   fontname: string; this is a rendering concern
   id: NodeId;
 } & TgNodeAttributes;
 
 // Pure-data internal graph model that can be JSON serialized.
 export type TgGraph = {
-  //   meta: TgGraphMeta; currently this is all DOT specific
-  //   graph: TgGraphAttributes; DOT specific
   schemaVersion: string;
   nodes: Record<string, TgNode>;
   // edges reference node ids to keep the model normalized.
   edges: TgEdge[];
-  // ranks: TgGraphRank[]; are DOT-specific layout hints; omit from the core model for now.
-  // legend: TgGraphLegend[]; // not sure about this, it could be gotten from the edges via a method
   description: Record<string, string>;
-  // rootDir: string; is Graphviz-specific (used for resolving image paths) and excluded
-  // from the internal model to keep it renderer-agnostic.
 };
 
 export const edgeIdFrom = (

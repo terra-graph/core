@@ -1,5 +1,6 @@
 export * from './AlignNodes.js';
 export * from './EdgeDirectionSemantic.js';
+export * from './EdgeDirectionSemantics.js';
 export * from './EdgeDotProperties.js';
 export * from './EdgeLegend.js';
 export * from './EdgeReverse.js';

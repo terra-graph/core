@@ -2,12 +2,11 @@ import { DirectedGraph } from 'graphology';
 import { GraphologyAdapter } from '../../Adapters/GraphologyAdapter.js';
 import {
   TG_SCHEMA_VERSION,
-  TgEdgeDirectionSemantic,
-  TgEdgeDirectionSemantics,
   TgGraph,
   asEdgeId,
   asNodeId,
 } from '../../TgGraph.js';
+import { DefaultEdgeDirectionSemantics } from './EdgeDirectionSemantics.js';
 import { EdgeSemanticLegend } from './EdgeSemanticLegend.js';
 
 describe('EdgeSemanticLegend.constructor', () => {
@@ -32,20 +31,21 @@ describe('EdgeSemanticLegend.constructor', () => {
     ).toThrow(`Rule 'EdgeSemanticLegend' requires options.legendBySemantic`);
   });
 
-  it('shoud reject invalid semantic keys', () => {
+  it('shoud allow custom semantic keys', () => {
     expect(
       () =>
         new EdgeSemanticLegend({
           edge: { from: { any: true }, to: { any: true } },
           options: {
             legendBySemantic: {
-              invalid: { title: 'Invalid', colour: '#000000' },
+              'provider.custom': {
+                title: 'Provider custom',
+                colour: '#000000',
+              },
             },
           },
         }),
-    ).toThrow(
-      `Rule 'EdgeSemanticLegend' has an invalid semantic key 'invalid'`,
-    );
+    ).not.toThrow();
   });
 
   it('shoud require title and colour for each semantic entry', () => {
@@ -55,12 +55,28 @@ describe('EdgeSemanticLegend.constructor', () => {
           edge: { from: { any: true }, to: { any: true } },
           options: {
             legendBySemantic: {
-              [TgEdgeDirectionSemantics.Invokes]: { title: 'Invokes' },
+              [DefaultEdgeDirectionSemantics.Invokes]: { title: 'Invokes' },
             },
           },
         }),
     ).toThrow(
       `Rule 'EdgeSemanticLegend' requires title and colour for semantic 'invokes'`,
+    );
+  });
+
+  it('shoud reject empty semantic keys', () => {
+    expect(
+      () =>
+        new EdgeSemanticLegend({
+          edge: { from: { any: true }, to: { any: true } },
+          options: {
+            legendBySemantic: {
+              '': { title: 'Invalid', colour: '#000000' },
+            },
+          },
+        }),
+    ).toThrow(
+      `Rule 'EdgeSemanticLegend' requires title and colour for semantic ''`,
     );
   });
 
@@ -71,7 +87,7 @@ describe('EdgeSemanticLegend.constructor', () => {
           edge: { from: { any: true }, to: { any: true } },
           options: {
             legendBySemantic: {
-              [TgEdgeDirectionSemantics.Invokes]: {
+              [DefaultEdgeDirectionSemantics.Invokes]: {
                 title: 'Invokes',
                 colour: '#1f77b4',
               },
@@ -107,7 +123,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Invokes,
+            directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
           },
         },
         {
@@ -115,7 +131,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeC,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Accesses,
+            directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
           },
         },
       ],
@@ -134,7 +150,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -146,14 +162,14 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, node, adapter);
 
     expect(result.getEdgeAttributes(invokesEdgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
       legend: {
         title: 'Invokes',
         colour: '#1f77b4',
       },
     });
     expect(result.getEdgeAttributes(accessesEdgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Accesses,
+      directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
     });
   });
 
@@ -175,7 +191,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Invokes,
+            directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
             legend: {
               title: 'Existing',
               colour: '#999999',
@@ -198,7 +214,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -210,7 +226,7 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, node, adapter);
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
       legend: {
         title: 'Existing',
         colour: '#999999',
@@ -236,7 +252,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Invokes,
+            directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
             legend: {
               title: 'Existing',
               colour: '#999999',
@@ -259,7 +275,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -272,7 +288,7 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, node, adapter);
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
       legend: {
         title: 'Invokes',
         colour: '#1f77b4',
@@ -315,7 +331,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -329,7 +345,7 @@ describe('EdgeSemanticLegend.apply', () => {
     expect(result.getEdgeAttributes(edgeId)).toEqual({ weight: 1 });
   });
 
-  it('shoud ignore edges with invalid direction semantics', () => {
+  it('shoud ignore edges with empty direction semantics', () => {
     const nodeA = asNodeId('node-a');
     const nodeB = asNodeId('node-b');
     const edgeId = asEdgeId('edge-a-b');
@@ -347,7 +363,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: 'invalid' as unknown as TgEdgeDirectionSemantic,
+            directionSemantic: '   ',
           },
         },
       ],
@@ -366,7 +382,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -378,7 +394,64 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, node, adapter);
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: 'invalid' as unknown as TgEdgeDirectionSemantic,
+      directionSemantic: '   ',
+    });
+  });
+
+  it('shoud set legend values for custom semantic keys', () => {
+    const nodeA = asNodeId('node-a');
+    const nodeB = asNodeId('node-b');
+    const edgeId = asEdgeId('edge-a-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: { id: nodeA, label: 'A' },
+        [nodeB]: { id: nodeB, label: 'B' },
+      },
+      edges: [
+        {
+          id: edgeId,
+          from: nodeA,
+          to: nodeB,
+          attributes: {
+            directionSemantic: 'provider.custom',
+          },
+        },
+      ],
+    };
+
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const node = adapter.getNodeAttributes(nodeA);
+    if (!node) {
+      throw new Error('Missing node attributes for node-a');
+    }
+
+    const rule = new EdgeSemanticLegend({
+      edge: {
+        from: { any: true },
+        to: { any: true },
+      },
+      options: {
+        legendBySemantic: {
+          'provider.custom': {
+            title: 'Provider custom',
+            colour: '#123456',
+          },
+        },
+      },
+    });
+
+    rule.match(nodeA, node, adapter);
+    const result = rule.apply(nodeA, node, adapter);
+
+    expect(result.getEdgeAttributes(edgeId)).toEqual({
+      directionSemantic: 'provider.custom',
+      legend: {
+        title: 'Provider custom',
+        colour: '#123456',
+      },
     });
   });
 
@@ -400,7 +473,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Accesses,
+            directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
           },
         },
       ],
@@ -419,7 +492,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -431,7 +504,7 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, node, adapter);
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Accesses,
+      directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
     });
   });
 
@@ -453,7 +526,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Invokes,
+            directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
           },
         },
       ],
@@ -472,7 +545,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -483,7 +556,7 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, node, adapter);
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
     });
   });
 
@@ -505,7 +578,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Invokes,
+            directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
           },
         },
       ],
@@ -524,7 +597,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -537,7 +610,7 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, mismatchedNode, adapter);
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
     });
   });
 
@@ -559,7 +632,7 @@ describe('EdgeSemanticLegend.apply', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Invokes,
+            directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
           },
         },
       ],
@@ -578,7 +651,7 @@ describe('EdgeSemanticLegend.apply', () => {
       },
       options: {
         legendBySemantic: {
-          [TgEdgeDirectionSemantics.Invokes]: {
+          [DefaultEdgeDirectionSemantics.Invokes]: {
             title: 'Invokes',
             colour: '#1f77b4',
           },
@@ -590,7 +663,7 @@ describe('EdgeSemanticLegend.apply', () => {
     const result = rule.apply(nodeA, node, adapter);
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
     });
   });
 });

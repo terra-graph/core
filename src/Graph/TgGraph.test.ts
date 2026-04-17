@@ -1,12 +1,11 @@
 import {
   EdgeId,
   NodeId,
-  TG_EDGE_DIRECTION_SEMANTICS,
   TG_SCHEMA_VERSION,
+  TgGraph,
   asEdgeId,
   asNodeId,
   edgeIdFrom,
-  isTgEdgeDirectionSemantic,
   parseTgNodeId,
   tgNodeIdFrom,
 } from './TgGraph.js';
@@ -67,21 +66,29 @@ describe('TgGraph.asEdgeId', () => {
   });
 });
 
-describe('TgGraph.TgEdgeDirectionSemantic', () => {
-  it('should include expected direction semantic values', () => {
-    expect(TG_EDGE_DIRECTION_SEMANTICS).toStrictEqual([
-      'invokes',
-      'accesses',
-      'publishes',
-      'triggers',
-      'routes',
-      'authorizes',
-      'observedBy',
-    ]);
-  });
+describe('TgGraph.TgEdgeAttributes', () => {
+  it('should allow custom direction semantic strings', () => {
+    const nodeA = asNodeId('node-a');
+    const nodeB = asNodeId('node-b');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: { id: nodeA },
+        [nodeB]: { id: nodeB },
+      },
+      edges: [
+        {
+          id: asEdgeId('edge-a-b'),
+          from: nodeA,
+          to: nodeB,
+          attributes: { directionSemantic: 'custom.semantic' },
+        },
+      ],
+    };
 
-  it('should validate direction semantic values', () => {
-    expect(isTgEdgeDirectionSemantic('invokes')).toBe(true);
-    expect(isTgEdgeDirectionSemantic('unknown')).toBe(false);
+    expect(graph.edges[0].attributes?.directionSemantic).toBe(
+      'custom.semantic',
+    );
   });
 });

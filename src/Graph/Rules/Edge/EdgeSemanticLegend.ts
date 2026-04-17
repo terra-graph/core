@@ -1,10 +1,5 @@
 import { AdapterOperations } from '../../Operations/Operations.js';
-import {
-  NodeId,
-  TgEdgeDirectionSemantic,
-  TgNodeAttributes,
-  isTgEdgeDirectionSemantic,
-} from '../../TgGraph.js';
+import { NodeId, TgNodeAttributes } from '../../TgGraph.js';
 import { EdgeRule } from '../Rule.js';
 import { EdgeRuleConfig } from '../RuleConfig.js';
 
@@ -14,9 +9,7 @@ type EdgeSemanticLegendEntry = {
 };
 
 type EdgeSemanticLegendOptions = {
-  legendBySemantic: Partial<
-    Record<TgEdgeDirectionSemantic, EdgeSemanticLegendEntry>
-  >;
+  legendBySemantic: Partial<Record<string, EdgeSemanticLegendEntry>>;
   overwrite?: boolean;
 };
 
@@ -40,12 +33,8 @@ export class EdgeSemanticLegend extends EdgeRule {
     }
 
     for (const [semantic, legend] of Object.entries(options.legendBySemantic)) {
-      if (!isTgEdgeDirectionSemantic(semantic)) {
-        throw new Error(
-          `Rule '${EdgeSemanticLegend.name}' has an invalid semantic key '${semantic}'`,
-        );
-      }
       if (
+        semantic.trim().length === 0 ||
         typeof legend?.title !== 'string' ||
         typeof legend?.colour !== 'string'
       ) {
@@ -94,7 +83,10 @@ export class EdgeSemanticLegend extends EdgeRule {
       }
 
       const current = updated.getEdgeAttributes(edgeId);
-      if (!isTgEdgeDirectionSemantic(current.directionSemantic)) {
+      if (
+        typeof current.directionSemantic !== 'string' ||
+        current.directionSemantic.trim().length === 0
+      ) {
         continue;
       }
 

@@ -2,12 +2,12 @@ import { DirectedGraph } from 'graphology';
 import { GraphologyAdapter } from '../../Adapters/GraphologyAdapter.js';
 import {
   TG_SCHEMA_VERSION,
-  TgEdgeDirectionSemantics,
   TgGraph,
   asEdgeId,
   asNodeId,
 } from '../../TgGraph.js';
 import { EdgeDirectionSemantic } from './EdgeDirectionSemantic.js';
+import { DefaultEdgeDirectionSemantics } from './EdgeDirectionSemantics.js';
 
 describe('EdgeDirectionSemantic.constructor', () => {
   it('shoud require options', () => {
@@ -19,13 +19,35 @@ describe('EdgeDirectionSemantic.constructor', () => {
     ).toThrow(`Rule 'EdgeDirectionSemantic' requires options in config`);
   });
 
-  it('shoud require a valid semantic option', () => {
+  it('shoud require a semantic option', () => {
+    expect(
+      () =>
+        new EdgeDirectionSemantic({
+          edge: { from: { any: true }, to: { any: true } },
+          options: {},
+        }),
+    ).toThrow(`Rule 'EdgeDirectionSemantic' requires options.semantic`);
+  });
+
+  it('shoud accept custom semantic values', () => {
     expect(
       () =>
         new EdgeDirectionSemantic({
           edge: { from: { any: true }, to: { any: true } },
           options: {
-            semantic: 'invalid',
+            semantic: 'provider.custom',
+          },
+        }),
+    ).not.toThrow();
+  });
+
+  it('shoud reject empty semantic values', () => {
+    expect(
+      () =>
+        new EdgeDirectionSemantic({
+          edge: { from: { any: true }, to: { any: true } },
+          options: {
+            semantic: '   ',
           },
         }),
     ).toThrow(`Rule 'EdgeDirectionSemantic' requires options.semantic`);
@@ -37,7 +59,7 @@ describe('EdgeDirectionSemantic.constructor', () => {
         new EdgeDirectionSemantic({
           edge: { from: { any: true }, to: { any: true } },
           options: {
-            semantic: TgEdgeDirectionSemantics.Invokes,
+            semantic: DefaultEdgeDirectionSemantics.Invokes,
             overwrite: 'yes',
           },
         }),
@@ -52,7 +74,7 @@ describe('EdgeDirectionSemantic.constructor', () => {
         new EdgeDirectionSemantic({
           edge: { from: { any: true }, to: { any: true } },
           options: {
-            semantic: TgEdgeDirectionSemantics.Invokes,
+            semantic: DefaultEdgeDirectionSemantics.Invokes,
             enforceDirection: 'yes',
           },
         }),
@@ -97,7 +119,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-b' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
       },
     });
 
@@ -106,7 +128,54 @@ describe('EdgeDirectionSemantic.apply', () => {
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
       weight: 1,
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
+    });
+  });
+
+  it('shoud set custom edge direction semantic values', () => {
+    const nodeA = asNodeId('node-a');
+    const nodeB = asNodeId('node-b');
+    const edgeId = asEdgeId('edge-a-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: { id: nodeA, label: 'A' },
+        [nodeB]: { id: nodeB, label: 'B' },
+      },
+      edges: [
+        {
+          id: edgeId,
+          from: nodeA,
+          to: nodeB,
+          attributes: { weight: 1 },
+        },
+      ],
+    };
+
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const node = adapter.getNodeAttributes(nodeA);
+    if (!node) {
+      throw new Error('Missing node attributes for node-a');
+    }
+
+    const rule = new EdgeDirectionSemantic({
+      edge: {
+        from: { nodeId: { eq: 'node-a' } },
+        to: { nodeId: { eq: 'node-b' } },
+      },
+      options: {
+        semantic: 'provider.custom',
+      },
+    });
+
+    rule.match(nodeA, node, adapter);
+    const result = rule.apply(nodeA, node, adapter);
+
+    expect(result.getEdgeAttributes(edgeId)).toEqual({
+      weight: 1,
+      directionSemantic: 'provider.custom',
     });
   });
 
@@ -129,7 +198,7 @@ describe('EdgeDirectionSemantic.apply', () => {
           to: nodeB,
           attributes: {
             weight: 1,
-            directionSemantic: TgEdgeDirectionSemantics.Accesses,
+            directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
           },
         },
       ],
@@ -147,7 +216,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-b' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
       },
     });
 
@@ -156,7 +225,7 @@ describe('EdgeDirectionSemantic.apply', () => {
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
       weight: 1,
-      directionSemantic: TgEdgeDirectionSemantics.Accesses,
+      directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
     });
   });
 
@@ -179,7 +248,7 @@ describe('EdgeDirectionSemantic.apply', () => {
           to: nodeB,
           attributes: {
             weight: 1,
-            directionSemantic: TgEdgeDirectionSemantics.Accesses,
+            directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
           },
         },
       ],
@@ -197,7 +266,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-b' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
         overwrite: true,
       },
     });
@@ -207,7 +276,7 @@ describe('EdgeDirectionSemantic.apply', () => {
 
     expect(result.getEdgeAttributes(edgeId)).toEqual({
       weight: 1,
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
     });
   });
 
@@ -245,7 +314,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-b' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
       },
     });
 
@@ -291,7 +360,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-b' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
         enforceDirection: true,
       },
     });
@@ -303,7 +372,7 @@ describe('EdgeDirectionSemantic.apply', () => {
     expect(result.edgeTarget(edgeId)).toBe(nodeB);
     expect(result.getEdgeAttributes(edgeId)).toEqual({
       weight: 1,
-      directionSemantic: TgEdgeDirectionSemantics.Invokes,
+      directionSemantic: DefaultEdgeDirectionSemantics.Invokes,
     });
   });
 
@@ -325,7 +394,7 @@ describe('EdgeDirectionSemantic.apply', () => {
           from: nodeB,
           to: nodeA,
           attributes: {
-            directionSemantic: TgEdgeDirectionSemantics.Accesses,
+            directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
           },
         },
       ],
@@ -343,7 +412,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-b' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
         enforceDirection: true,
       },
     });
@@ -354,7 +423,7 @@ describe('EdgeDirectionSemantic.apply', () => {
     expect(result.edgeSource(edgeId)).toBe(nodeB);
     expect(result.edgeTarget(edgeId)).toBe(nodeA);
     expect(result.getEdgeAttributes(edgeId)).toEqual({
-      directionSemantic: TgEdgeDirectionSemantics.Accesses,
+      directionSemantic: DefaultEdgeDirectionSemantics.Accesses,
     });
   });
 
@@ -392,7 +461,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { any: true },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
       },
     });
 
@@ -437,7 +506,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-c' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
       },
     });
 
@@ -481,7 +550,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-c' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
         enforceDirection: true,
       },
     });
@@ -527,7 +596,7 @@ describe('EdgeDirectionSemantic.apply', () => {
         to: { nodeId: { eq: 'node-b' } },
       },
       options: {
-        semantic: TgEdgeDirectionSemantics.Invokes,
+        semantic: DefaultEdgeDirectionSemantics.Invokes,
       },
     });
 
