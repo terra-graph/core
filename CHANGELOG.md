@@ -1,3 +1,10 @@
+# [1.0.0-rc.9](https://github.com/terra-graph/core/compare/v1.0.0-rc.8...v1.0.0-rc.9) (2026-04-17)
+
+
+### Bug Fixes
+
+* make EdgeDirectionSemantics not hardcoded and specific for each set of conventions ([9b35094](https://github.com/terra-graph/core/commit/9b350946b951c3384bc3a27afd8378d9d242226a))
+
 # [1.0.0-rc.8](https://github.com/terra-graph/core/compare/v1.0.0-rc.7...v1.0.0-rc.8) (2026-04-09)
 
 
