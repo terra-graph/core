@@ -1,3 +1,10 @@
+# [1.0.0-rc.10](https://github.com/terra-graph/core/compare/v1.0.0-rc.9...v1.0.0-rc.10) (2026-04-21)
+
+
+### Features
+
+* add decorator for TgGraph including tf state ([de5874c](https://github.com/terra-graph/core/commit/de5874cc173228a52c441e7b0729774294a9530d))
+
 # [1.0.0-rc.9](https://github.com/terra-graph/core/compare/v1.0.0-rc.8...v1.0.0-rc.9) (2026-04-17)
 
 
