@@ -22,10 +22,13 @@ export type SerializedRuntimeConfig<
   profiles?: Record<string, SerializedRuntimeProfile<TOptions>>;
   run?: {
     profile: string;
-    render?: {
+    outputs?: Array<{
       renderer?: string;
       options?: TOptions;
-    };
+      transformers?: string[];
+      outWriter?: 'stdout' | 'file';
+      outFile?: string;
+    }>;
   };
 };
 

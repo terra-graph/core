@@ -353,6 +353,239 @@ describe('GraphologyAdapter.toTgGraph', () => {
     });
   });
 
+  it('shoud preserve provider agnostic terraform state fields when present', () => {
+    const graph = new DirectedGraph();
+    const a = asNodeId('a');
+    graph.addNode(a, {
+      terraform: {
+        kind: 'resource',
+        address: 'aws_iam_policy.example',
+        resource: 'aws_iam_policy',
+        name: 'example',
+        state: {
+          source: 'plan_show',
+          effective: {
+            address: 'aws_iam_policy.example',
+            mode: 'managed',
+            type: 'aws_iam_policy',
+            name: 'example',
+            provider_name: 'registry.terraform.io/hashicorp/aws',
+            values: {
+              name: 'example',
+            },
+          },
+          instances: [
+            {
+              address: 'aws_iam_policy.example',
+              mode: 'managed',
+              type: 'aws_iam_policy',
+              name: 'example',
+              provider_name: 'registry.terraform.io/hashicorp/aws',
+              values: {
+                name: 'example',
+              },
+            },
+          ],
+        },
+      },
+    });
+    const adapter = new GraphologyAdapter(graph);
+
+    expect(adapter.toTgGraph()).toStrictEqual({
+      schemaVersion: TG_SCHEMA_VERSION,
+      nodes: {
+        [a]: {
+          id: a,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_policy.example',
+            resource: 'aws_iam_policy',
+            name: 'example',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address: 'aws_iam_policy.example',
+                mode: 'managed',
+                type: 'aws_iam_policy',
+                name: 'example',
+                provider_name: 'registry.terraform.io/hashicorp/aws',
+                values: {
+                  name: 'example',
+                },
+              },
+              instances: [
+                {
+                  address: 'aws_iam_policy.example',
+                  mode: 'managed',
+                  type: 'aws_iam_policy',
+                  name: 'example',
+                  provider_name: 'registry.terraform.io/hashicorp/aws',
+                  values: {
+                    name: 'example',
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+      edges: [],
+      description: {},
+    });
+  });
+
+  it('shoud omit terraform.state when source/effective/instances are invalid', () => {
+    const graph = new DirectedGraph();
+    const invalidSource = asNodeId('invalid-source');
+    const invalidEffective = asNodeId('invalid-effective');
+    const invalidInstances = asNodeId('invalid-instances');
+
+    graph.addNode(invalidSource, {
+      terraform: {
+        kind: 'resource',
+        address: 'aws_s3_bucket.invalid_source',
+        resource: 'aws_s3_bucket',
+        name: 'invalid_source',
+        state: {
+          source: 'unsupported',
+          effective: {
+            address: 'aws_s3_bucket.invalid_source',
+            values: {},
+          },
+          instances: [],
+        },
+      },
+    });
+
+    graph.addNode(invalidEffective, {
+      terraform: {
+        kind: 'resource',
+        address: 'aws_s3_bucket.invalid_effective',
+        resource: 'aws_s3_bucket',
+        name: 'invalid_effective',
+        state: {
+          source: 'state_show',
+          effective: 'not-an-object',
+          instances: [],
+        },
+      },
+    });
+
+    graph.addNode(invalidInstances, {
+      terraform: {
+        kind: 'resource',
+        address: 'aws_s3_bucket.invalid_instances',
+        resource: 'aws_s3_bucket',
+        name: 'invalid_instances',
+        state: {
+          source: 'state_show',
+          effective: {
+            address: 'aws_s3_bucket.invalid_instances',
+            values: {},
+          },
+          instances: { not: 'an-array' },
+        },
+      },
+    });
+
+    const tg = new GraphologyAdapter(graph).toTgGraph();
+
+    expect(tg.nodes[invalidSource].terraform).toEqual({
+      kind: 'resource',
+      address: 'aws_s3_bucket.invalid_source',
+      resource: 'aws_s3_bucket',
+      name: 'invalid_source',
+    });
+
+    expect(tg.nodes[invalidEffective].terraform).toEqual({
+      kind: 'resource',
+      address: 'aws_s3_bucket.invalid_effective',
+      resource: 'aws_s3_bucket',
+      name: 'invalid_effective',
+    });
+
+    expect(tg.nodes[invalidInstances].terraform).toEqual({
+      kind: 'resource',
+      address: 'aws_s3_bucket.invalid_instances',
+      resource: 'aws_s3_bucket',
+      name: 'invalid_instances',
+    });
+  });
+
+  it('shoud accept null effective state and filter invalid state instances', () => {
+    const graph = new DirectedGraph();
+    const a = asNodeId('a');
+
+    graph.addNode(a, {
+      terraform: {
+        kind: 'resource',
+        address: 'aws_instance.app',
+        resource: 'aws_instance',
+        name: 'app',
+        state: {
+          source: 'state_show',
+          effective: null,
+          instances: [
+            null,
+            'not-an-object',
+            {
+              mode: 'managed',
+            },
+            {
+              address: 'aws_instance.app["blue"]',
+              module_address: 'module.app',
+              mode: 'managed',
+              type: 'aws_instance',
+              name: 'app',
+              index: 'blue',
+              provider_name: 'registry.terraform.io/hashicorp/aws',
+              deposed: 'deposed-key',
+              previous_address: 'aws_instance.app["green"]',
+              values: { id: 'i-blue' },
+            },
+            {
+              address: 'aws_instance.app["red"]',
+            },
+          ],
+        },
+      },
+    });
+
+    const tg = new GraphologyAdapter(graph).toTgGraph();
+
+    expect(tg.nodes[a]).toEqual({
+      id: a,
+      terraform: {
+        kind: 'resource',
+        address: 'aws_instance.app',
+        resource: 'aws_instance',
+        name: 'app',
+        state: {
+          source: 'state_show',
+          effective: null,
+          instances: [
+            {
+              address: 'aws_instance.app["blue"]',
+              module_address: 'module.app',
+              mode: 'managed',
+              type: 'aws_instance',
+              name: 'app',
+              index: 'blue',
+              provider_name: 'registry.terraform.io/hashicorp/aws',
+              deposed: 'deposed-key',
+              previous_address: 'aws_instance.app["green"]',
+              values: { id: 'i-blue' },
+            },
+            {
+              address: 'aws_instance.app["red"]',
+              values: null,
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it('shoud return an empty-node payload when neither label nor terraform exist', () => {
     const graph = new DirectedGraph();
     const a = asNodeId('a');

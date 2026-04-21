@@ -70,4 +70,61 @@ describe('ZodRuntimeConfigValidator.validate', () => {
 
     expect(result.profiles?.child.usesProfiles).toEqual(['base']);
   });
+
+  it('shoud validate run.outputs', () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    const result = validator.validate({
+      profiles: {
+        base: {
+          phases: [],
+        },
+      },
+      run: {
+        profile: 'base',
+        outputs: [
+          {
+            renderer: 'dot',
+            transformers: ['dotcli'],
+            outWriter: 'file',
+            outFile: './diagram.png',
+            options: {
+              graph: {
+                ranksep: 6,
+              },
+            },
+          },
+          {
+            renderer: 'json',
+            outWriter: 'file',
+            outFile: './diagram.json',
+          },
+        ],
+      },
+    });
+
+    expect(result.run?.outputs).toHaveLength(2);
+    expect(result.run?.outputs?.[0]?.renderer).toBe('dot');
+    expect(result.run?.outputs?.[1]?.renderer).toBe('json');
+  });
+
+  it('shoud reject legacy run.render', () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    expect(() =>
+      validator.validate({
+        profiles: {
+          base: {
+            phases: [],
+          },
+        },
+        run: {
+          profile: 'base',
+          render: {
+            renderer: 'dot',
+          },
+        },
+      }),
+    ).toThrow();
+  });
 });

@@ -40,6 +40,12 @@ digraph {
 }
 `;
 
+const INDEXED_RESOURCE_INPUT = `
+digraph {
+  "module.app.aws_instance.web[0]" [label="aws_instance.web[0]"];
+}
+`;
+
 type TerraformDotImporterInternals = {
   normalizeAddress: (value: string) => string;
   extractModulePrefix: (value: string) => string | undefined;
@@ -343,6 +349,20 @@ describe('TerraformDotImporter.fromString', () => {
     } finally {
       readSpy.mockRestore();
     }
+  });
+
+  it('shoud keep full terraform addresses on imported node metadata', () => {
+    const importer = new TerraformDotImporter();
+    const result = importer.fromString(INDEXED_RESOURCE_INPUT);
+    const nodeId = tgNodeIdFrom('resource', 'module.app.aws_instance.web[0]');
+
+    expect(result.nodes[nodeId]).toEqual(
+      expect.objectContaining({
+        terraform: expect.objectContaining({
+          address: 'module.app.aws_instance.web[0]',
+        }),
+      }),
+    );
   });
 
   it('shoud ignore non-string labels and handle empty edge attributes', () => {

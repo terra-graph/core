@@ -40,6 +40,16 @@ const renderSchema = z
   })
   .strict();
 
+const runOutputSchema = z
+  .object({
+    renderer: z.string().min(1).optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
+    transformers: z.array(z.string().min(1)).optional(),
+    outWriter: z.enum(['stdout', 'file']).optional(),
+    outFile: z.string().min(1).optional(),
+  })
+  .strict();
+
 const pluginRefSchema = z
   .object({
     plugin: z.string().min(1),
@@ -73,7 +83,7 @@ const serializedRuntimeConfigSchema = z
     run: z
       .object({
         profile: z.string().min(1),
-        render: renderSchema.optional(),
+        outputs: z.array(runOutputSchema).optional(),
       })
       .strict()
       .optional(),

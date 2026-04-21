@@ -13,6 +13,9 @@ import {
   TgNodeAttributes,
   TgNodeKind,
   TgNodeTerraform,
+  type TgNodeTerraformState,
+  type TgNodeTerraformStateBase,
+  type TgNodeTerraformStateInstance,
   asNodeId,
   parseTgNodeId,
   tgNodeIdFrom,
@@ -355,7 +358,112 @@ export class GraphologyAdapter implements AdapterOperations {
     if (parentModuleNodeId !== undefined) {
       resolved.parentModuleNodeId = parentModuleNodeId;
     }
+    const state = this.resolveTerraformState(terraform?.state);
+    if (state) {
+      resolved.state = state;
+    }
     return resolved;
+  }
+
+  private resolveTerraformState(
+    value: unknown,
+  ): TgNodeTerraformState | undefined {
+    if (!this.isObjectRecord(value)) {
+      return undefined;
+    }
+
+    const state = value as Record<string, unknown>;
+    if (state.source !== 'state_show' && state.source !== 'plan_show') {
+      return undefined;
+    }
+
+    const effective = this.resolveTerraformStateInstance(state.effective);
+    if (effective === undefined) {
+      return undefined;
+    }
+
+    if (!Array.isArray(state.instances)) {
+      return undefined;
+    }
+
+    const instances = state.instances
+      .map((entry) => this.resolveTerraformStateInstance(entry))
+      .filter(
+        (entry): entry is TgNodeTerraformStateInstance =>
+          entry !== undefined && entry !== null,
+      );
+
+    return {
+      source: state.source,
+      effective,
+      instances,
+    };
+  }
+
+  private resolveTerraformStateInstance(
+    value: unknown,
+  ): TgNodeTerraformStateInstance | null | undefined {
+    if (value === null) {
+      return null;
+    }
+
+    if (!this.isObjectRecord(value)) {
+      return undefined;
+    }
+
+    const base = this.resolveTerraformStateBase(value);
+    if (!base) {
+      return undefined;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      ...base,
+      values: record.values ?? null,
+    };
+  }
+
+  private resolveTerraformStateBase(
+    value: Record<string, unknown>,
+  ): TgNodeTerraformStateBase | undefined {
+    if (typeof value.address !== 'string') {
+      return undefined;
+    }
+
+    const base: TgNodeTerraformStateBase = {
+      address: value.address,
+    };
+
+    if (typeof value.module_address === 'string') {
+      base.module_address = value.module_address;
+    }
+    if (typeof value.mode === 'string') {
+      base.mode = value.mode;
+    }
+    if (typeof value.type === 'string') {
+      base.type = value.type;
+    }
+    if (typeof value.name === 'string') {
+      base.name = value.name;
+    }
+    if (typeof value.index === 'number' || typeof value.index === 'string') {
+      base.index = value.index;
+    }
+    if (typeof value.provider_name === 'string') {
+      base.provider_name = value.provider_name;
+    }
+    if (typeof value.deposed === 'string') {
+      base.deposed = value.deposed;
+    }
+    if (typeof value.previous_address === 'string') {
+      base.previous_address = value.previous_address;
+    }
+
+    return base;
+  }
+
+  private isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   private parentModuleHelpers(

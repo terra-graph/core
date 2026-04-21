@@ -1153,6 +1153,30 @@ describe('DotRenderer.applyLegend', () => {
       'label="\n  <<table><tr><td>\\"hello\\"</td></tr></table>>\n  "',
     );
   });
+
+  it('shoud preserve escaped quotes in non-label sections', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      applyLegend: (output: string, tg: TgGraph) => string;
+    };
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {
+        Environment: 'test',
+      },
+      nodes: {},
+      edges: [],
+    };
+
+    const output =
+      'digraph { "tg:1.0.0:provider:provider[\\"registry.terraform.io/hashicorp/aws\\"]" [label="provider"]; }';
+    const next = subject.applyLegend(output, tg);
+
+    expect(next).toContain(
+      'provider[\\"registry.terraform.io/hashicorp/aws\\"]',
+    );
+  });
 });
 
 describe('DotRenderer.applyRanks', () => {
@@ -1196,6 +1220,49 @@ describe('DotRenderer.applyRanks', () => {
     const output = 'digraph {';
 
     expect(subject.applyRanks(output, ranked)).toBe(output);
+  });
+
+  it('shoud escape quoted node ids when writing rank blocks', () => {
+    const nodeA = asNodeId('node-"a"');
+    const nodeB = asNodeId('node-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: {
+          id: nodeA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.a',
+            resource: 'aws_s3_bucket',
+            name: 'a',
+          },
+        },
+        [nodeB]: {
+          id: nodeB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.b',
+            resource: 'aws_s3_bucket',
+            name: 'b',
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const ranked = adapter.addRank([nodeA, nodeB], 'same');
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      applyRanks: (output: string, adapter: DotAdapter) => string;
+    };
+
+    const output = 'digraph { }';
+    const next = subject.applyRanks(output, ranked);
+
+    expect(next).toContain('"node-\\"a\\"" "node-b"');
   });
 });
 

@@ -138,7 +138,9 @@ export class DotRenderer implements Renderer<DotAdapter> {
 
     const rankBlock = filteredRanks
       .map((rank) => {
-        const nodes = rank.nodes.map((nodeId) => `"${nodeId}"`).join(' ');
+        const nodes = rank.nodes
+          .map((nodeId) => this.quoteDotId(nodeId))
+          .join(' ');
         return `  { rank = ${rank.mode}; ${nodes} }`;
       })
       .join('\n');
@@ -212,16 +214,29 @@ ${legendRows}
       return output;
     }
 
-    return `${output.slice(0, firstBrace + 1)}\n${keySubgraph}\n${output.slice(
-      firstBrace + 1,
-    )}`
-      .replace(/"\s*<</g, '<<')
-      .replace(/>>\s*"/g, '>>')
-      .replaceAll('\\"', '"');
+    const merged =
+      `${output.slice(0, firstBrace + 1)}\n${keySubgraph}\n${output.slice(
+        firstBrace + 1,
+      )}`
+        .replace(/"\s*<</g, '<<')
+        .replace(/>>\s*"/g, '>>');
+
+    return this.unescapeHtmlLabelQuotes(merged);
   }
 
   private buildNodeLabel(node: TgNode): string {
     return new TgNodeLabel(node).getLabel();
+  }
+
+  private quoteDotId(nodeId: string): string {
+    const escaped = nodeId.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+    return `"${escaped}"`;
+  }
+
+  private unescapeHtmlLabelQuotes(output: string): string {
+    return output.replace(/<<[\s\S]*?>>/g, (label) =>
+      label.replaceAll('\\"', '"'),
+    );
   }
 
   private static resolveGraphOptions(

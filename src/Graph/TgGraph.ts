@@ -65,6 +65,29 @@ export type TgNodeTerraform = {
   moduleAddress?: string;
   parentModuleName?: string;
   parentModuleNodeId?: NodeId;
+  state?: TgNodeTerraformState;
+};
+
+export type TgNodeTerraformStateBase = {
+  address: string;
+  module_address?: string;
+  mode?: string;
+  type?: string;
+  name?: string;
+  index?: number | string;
+  provider_name?: string;
+  deposed?: string;
+  previous_address?: string;
+};
+
+export type TgNodeTerraformStateInstance = TgNodeTerraformStateBase & {
+  values: unknown | null;
+};
+
+export type TgNodeTerraformState = {
+  source: 'state_show' | 'plan_show';
+  effective: TgNodeTerraformStateInstance | null;
+  instances: TgNodeTerraformStateInstance[];
 };
 
 export type TgNodeLabelHints = {
