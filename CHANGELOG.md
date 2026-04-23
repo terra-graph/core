@@ -1,3 +1,15 @@
+# [1.0.0-rc.12](https://github.com/terra-graph/core/compare/v1.0.0-rc.11...v1.0.0-rc.12) (2026-04-23)
+
+
+### Bug Fixes
+
+* html label rendering ([73c69a4](https://github.com/terra-graph/core/commit/73c69a4534c81f0e0f42ff96ac913a2da8d0f5f5))
+
+
+### Features
+
+* add slot for profiles, allowing override ([d2b8e8b](https://github.com/terra-graph/core/commit/d2b8e8bf4fa149fb762ca6e4f44bc952dbc665da))
+
 # [1.0.0-rc.11](https://github.com/terra-graph/core/compare/v1.0.0-rc.10...v1.0.0-rc.11) (2026-04-23)
 
 
