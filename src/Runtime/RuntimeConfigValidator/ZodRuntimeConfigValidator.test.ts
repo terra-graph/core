@@ -108,6 +108,31 @@ describe('ZodRuntimeConfigValidator.validate', () => {
     expect(result.run?.outputs?.[1]?.renderer).toBe('json');
   });
 
+  it('shoud validate plugin refs with slot keys', () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    const result = validator.validate({
+      profiles: {
+        base: {
+          plugins: [
+            {
+              plugin: 'aws.AwsApiGateway',
+              slot: 'api.gateway',
+              options: { mode: 'minimal' },
+            },
+          ],
+          phases: [],
+        },
+      },
+    });
+
+    expect(result.profiles?.base.plugins?.[0]).toEqual({
+      plugin: 'aws.AwsApiGateway',
+      slot: 'api.gateway',
+      options: { mode: 'minimal' },
+    });
+  });
+
   it('shoud reject legacy run.render', () => {
     const validator = new ZodRuntimeConfigValidator();
 

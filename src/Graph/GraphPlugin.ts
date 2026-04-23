@@ -139,6 +139,7 @@ export class GraphPluginRegistry {
 export type GraphPluginRef = {
   plugin: string;
   options?: unknown;
+  slot?: string;
 };
 
 export type SerializedGraphPluginRef = GraphPluginRef;

@@ -177,6 +177,29 @@ describe('Profile.serialize', () => {
     expect(json.phases).toStrictEqual([]);
   });
 
+  it('shoud serialize plugin slots', () => {
+    const profile = new Profile('my-profile', {
+      plugins: [
+        {
+          plugin: 'test.remove_label',
+          options: { label: 'plugin' },
+          slot: 'api',
+        },
+      ],
+      phases: [],
+    });
+
+    const json = profile.serialize();
+
+    expect(json.plugins).toStrictEqual([
+      {
+        plugin: 'test.remove_label',
+        options: { label: 'plugin' },
+        slot: 'api',
+      },
+    ]);
+  });
+
   it('shoud serialize named phases', () => {
     const profile = new Profile('my-profile', {
       phases: [
@@ -251,6 +274,50 @@ describe('Profile.deserialize', () => {
         plugin: 'test.remove_label',
         options: { label: 'plugin' },
       },
+    ]);
+  });
+
+  it('shoud deserialize plugin slots', () => {
+    const profile = new Profile('my-profile', {
+      plugins: [
+        {
+          plugin: 'test.remove_label',
+          options: { label: 'plugin' },
+          slot: 'api',
+        },
+      ],
+    });
+    const json = profile.serialize();
+    const restored = Profile.deseriaize(json);
+
+    expect(restored.serialize().plugins).toStrictEqual([
+      {
+        plugin: 'test.remove_label',
+        options: { label: 'plugin' },
+        slot: 'api',
+      },
+    ]);
+  });
+
+  it('shoud deserialize used profiles recursively', () => {
+    const restored = Profile.deseriaize({
+      name: 'parent',
+      usesProfiles: [
+        {
+          name: 'child',
+          phases: [],
+          usesProfiles: [],
+        },
+      ],
+      phases: [],
+    });
+
+    expect(restored.serialize().usesProfiles).toEqual([
+      expect.objectContaining({
+        name: 'child',
+        phases: [],
+        usesProfiles: [],
+      }),
     ]);
   });
 
@@ -554,6 +621,226 @@ describe('Profile.resolvePhases', () => {
       id: 'AlwaysMatchRule',
       config: { node: { attr: { key: 'label', eq: 'plugin-cleanup' } } },
     });
+  });
+
+  it('shoud replace inherited slotted plugins with child plugin refs', () => {
+    class SlotMarkerPlugin extends GraphPlugin<{ marker: string }> {
+      public override build({
+        options,
+      }: GraphPluginBuildInput<{ marker: string }>): GraphPluginBuildResult {
+        return {
+          phases: [
+            {
+              phase: 'main',
+              rules: [
+                createAlwaysMatch(
+                  NodeQuery.from({
+                    attr: { key: 'label', eq: options.marker },
+                  }),
+                ),
+              ],
+            },
+          ],
+        };
+      }
+    }
+
+    const registry = new GraphPluginRegistry({
+      'plugin.one': new SlotMarkerPlugin('plugin.one'),
+      'plugin.two': new SlotMarkerPlugin('plugin.two'),
+    });
+
+    const base = new Profile('base', {
+      plugins: [
+        { plugin: 'plugin.one', options: { marker: 'base-before' } },
+        {
+          plugin: 'plugin.one',
+          options: { marker: 'base-slot' },
+          slot: 'api.gateway',
+        },
+        { plugin: 'plugin.one', options: { marker: 'base-after' } },
+      ],
+    });
+
+    const current = new Profile('current', {
+      usesProfiles: [base],
+      plugins: [
+        {
+          plugin: 'plugin.two',
+          options: { marker: 'child-slot' },
+          slot: 'api.gateway',
+        },
+      ],
+    });
+
+    const phases = current.resolvePhases(undefined, undefined, registry);
+    const serialized = phases.flatMap((phase) =>
+      phase.map((rule) => rule.serialize()),
+    );
+
+    expect(phases).toHaveLength(3);
+    expect(serialized).toEqual([
+      {
+        id: 'AlwaysMatchRule',
+        config: { node: { attr: { key: 'label', eq: 'base-before' } } },
+      },
+      {
+        id: 'AlwaysMatchRule',
+        config: { node: { attr: { key: 'label', eq: 'child-slot' } } },
+      },
+      {
+        id: 'AlwaysMatchRule',
+        config: { node: { attr: { key: 'label', eq: 'base-after' } } },
+      },
+    ]);
+  });
+
+  it('shoud keep slot replacement at the first slot location', () => {
+    class SlotMarkerPlugin extends GraphPlugin<{ marker: string }> {
+      public override build({
+        options,
+      }: GraphPluginBuildInput<{ marker: string }>): GraphPluginBuildResult {
+        return {
+          phases: [
+            {
+              phase: 'main',
+              rules: [
+                createAlwaysMatch(
+                  NodeQuery.from({
+                    attr: { key: 'label', eq: options.marker },
+                  }),
+                ),
+              ],
+            },
+          ],
+        };
+      }
+    }
+
+    const registry = new GraphPluginRegistry({
+      'plugin.one': new SlotMarkerPlugin('plugin.one'),
+      'plugin.two': new SlotMarkerPlugin('plugin.two'),
+    });
+
+    const base = new Profile('base', {
+      plugins: [
+        {
+          plugin: 'plugin.one',
+          options: { marker: 'first-slot' },
+          slot: 'api',
+        },
+        { plugin: 'plugin.one', options: { marker: 'middle' } },
+        {
+          plugin: 'plugin.one',
+          options: { marker: 'ignored-slot' },
+          slot: 'api',
+        },
+      ],
+    });
+
+    const current = new Profile('current', {
+      usesProfiles: [base],
+      plugins: [
+        {
+          plugin: 'plugin.two',
+          options: { marker: 'child-slot' },
+          slot: 'api',
+        },
+      ],
+    });
+
+    const phases = current.resolvePhases(undefined, undefined, registry);
+    const serialized = phases.flatMap((phase) =>
+      phase.map((rule) => rule.serialize()),
+    );
+
+    expect(phases).toHaveLength(2);
+    expect(serialized).toEqual([
+      {
+        id: 'AlwaysMatchRule',
+        config: { node: { attr: { key: 'label', eq: 'child-slot' } } },
+      },
+      {
+        id: 'AlwaysMatchRule',
+        config: { node: { attr: { key: 'label', eq: 'middle' } } },
+      },
+    ]);
+  });
+
+  it('shoud replace slotted plugins when the owner profile has no non-slot plugins', () => {
+    class SlotMarkerPlugin extends GraphPlugin<{ marker: string }> {
+      public override build({
+        options,
+      }: GraphPluginBuildInput<{ marker: string }>): GraphPluginBuildResult {
+        return {
+          phases: [
+            {
+              phase: 'main',
+              rules: [
+                createAlwaysMatch(
+                  NodeQuery.from({
+                    attr: { key: 'label', eq: options.marker },
+                  }),
+                ),
+              ],
+            },
+          ],
+        };
+      }
+    }
+
+    const registry = new GraphPluginRegistry({
+      'plugin.one': new SlotMarkerPlugin('plugin.one'),
+      'plugin.two': new SlotMarkerPlugin('plugin.two'),
+    });
+
+    const base = new Profile('base', {
+      plugins: [
+        {
+          plugin: 'plugin.one',
+          options: { marker: 'base-slot' },
+          slot: 'api',
+        },
+      ],
+    });
+
+    const current = new Profile('current', {
+      usesProfiles: [base],
+      plugins: [
+        {
+          plugin: 'plugin.two',
+          options: { marker: 'child-slot' },
+          slot: 'api',
+        },
+      ],
+    });
+
+    const phases = current.resolvePhases(undefined, undefined, registry);
+    const serialized = phases.flatMap((phase) =>
+      phase.map((rule) => rule.serialize()),
+    );
+
+    expect(phases).toHaveLength(1);
+    expect(serialized).toEqual([
+      {
+        id: 'AlwaysMatchRule',
+        config: { node: { attr: { key: 'label', eq: 'child-slot' } } },
+      },
+    ]);
+  });
+
+  it('shoud fall back to empty plugin lists when effective plugin map misses an occurrence', () => {
+    const profile = new Profile('plugin-profile', {
+      plugins: [{ plugin: 'test.remove_label', options: { label: 'plugin' } }],
+    });
+
+    (
+      profile as unknown as {
+        resolveEffectivePluginsByOccurrence: () => Map<number, unknown[]>;
+      }
+    ).resolveEffectivePluginsByOccurrence = () => new Map();
+
+    expect(profile.resolvePhases()).toEqual([]);
   });
 
   it('shoud throw when plugins are used without a plugin registry', () => {
@@ -985,6 +1272,63 @@ describe('Profile.usePlugin', () => {
     expect(updated.serialize().plugins).toStrictEqual([
       { plugin: 'test.remove_label', options: { label: 'plugin' } },
     ]);
+  });
+
+  it('shoud append plugin references with slots', () => {
+    const base = new Profile('plugin-profile', {});
+    const updated = base.usePlugin(
+      'test.remove_label',
+      { label: 'plugin' },
+      'api',
+    );
+
+    expect(updated.serialize().plugins).toStrictEqual([
+      {
+        plugin: 'test.remove_label',
+        options: { label: 'plugin' },
+        slot: 'api',
+      },
+    ]);
+  });
+});
+
+describe('Profile private plugin resolution defaults', () => {
+  it('shoud default resolveOwnPhaseEntries plugins to profile plugins', () => {
+    const profile = new Profile('plugin-profile', {
+      plugins: [{ plugin: 'test.remove_label', options: { label: 'plugin' } }],
+    });
+
+    const entries = (
+      profile as unknown as {
+        resolveOwnPhaseEntries: (
+          namedRules?: NamedRuleRegistry,
+          namedRuleSets?: NamedRuleSetRegistry,
+          pluginRegistry?: GraphPluginRegistry,
+        ) => Array<{ phase: string; rules: NodeRule[] }>;
+      }
+    ).resolveOwnPhaseEntries(undefined, undefined, pluginRegistry);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].phase).toBe('main');
+  });
+
+  it('shoud default resolveOwnPlugins plugins to profile plugins', () => {
+    const profile = new Profile('plugin-profile', {
+      plugins: [{ plugin: 'test.remove_label', options: { label: 'plugin' } }],
+    });
+
+    const resolved = (
+      profile as unknown as {
+        resolveOwnPlugins: (
+          namedRules?: NamedRuleRegistry,
+          namedRuleSets?: NamedRuleSetRegistry,
+          pluginRegistry?: GraphPluginRegistry,
+        ) => { phases: Array<{ phase: string; rules: unknown[] }> };
+      }
+    ).resolveOwnPlugins(undefined, undefined, pluginRegistry);
+
+    expect(resolved.phases).toHaveLength(1);
+    expect(resolved.phases[0].phase).toBe('main');
   });
 });
 

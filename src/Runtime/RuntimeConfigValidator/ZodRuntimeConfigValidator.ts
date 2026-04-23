@@ -54,6 +54,7 @@ const pluginRefSchema = z
   .object({
     plugin: z.string().min(1),
     options: z.unknown().optional(),
+    slot: z.string().min(1).optional(),
   })
   .strict();
 

@@ -48,6 +48,11 @@ type ResolvedPhaseEntry = {
   rules: BaseRule[];
 };
 
+type ProfileOccurrence<TOptions = Record<string, unknown>> = {
+  occurrenceId: number;
+  profile: Profile<TOptions>;
+};
+
 export class Profile<TOptions = Record<string, unknown>> {
   public readonly supports?: AdapterOperationsConstructor;
   private readonly render?: ProfileRenderConfig<TOptions>;
@@ -86,12 +91,18 @@ export class Profile<TOptions = Record<string, unknown>> {
     });
   }
 
-  public usePlugin(plugin: string, options?: unknown): Profile<TOptions> {
+  public usePlugin(
+    plugin: string,
+    options?: unknown,
+    slot?: string,
+  ): Profile<TOptions> {
+    const pluginRef = slot ? { plugin, options, slot } : { plugin, options };
+
     return new Profile(this.name, {
       supports: this.supports,
       render: this.render,
       phases: this.phases,
-      plugins: [...this.plugins, { plugin, options }],
+      plugins: [...this.plugins, pluginRef],
       usesProfiles: this.usesProfiles,
     });
   }
@@ -194,36 +205,31 @@ export class Profile<TOptions = Record<string, unknown>> {
     namedRuleSets?: NamedRuleSetRegistry,
     pluginRegistry?: GraphPluginRegistry,
   ): ResolvedPhaseEntry[] {
-    const ownEntries = this.resolveOwnPhaseEntries(
-      namedRules,
-      namedRuleSets,
-      pluginRegistry,
-    );
-    const inheritedEntries = this.usesProfiles.reduce(
-      (acc, profile) => [
-        // biome-ignore lint/performance/noAccumulatingSpread: <explanation>
-        ...acc,
-        ...profile.resolvePhaseEntries(
-          namedRules,
-          namedRuleSets,
-          pluginRegistry,
-        ),
-      ],
-      [] as ResolvedPhaseEntry[],
-    );
+    const profileOccurrences = this.collectProfileOccurrences();
+    const effectivePlugins =
+      this.resolveEffectivePluginsByOccurrence(profileOccurrences);
 
-    return [...inheritedEntries, ...ownEntries];
+    return profileOccurrences.flatMap((occurrence) =>
+      occurrence.profile.resolveOwnPhaseEntries(
+        namedRules,
+        namedRuleSets,
+        pluginRegistry,
+        effectivePlugins.get(occurrence.occurrenceId) ?? [],
+      ),
+    );
   }
 
   private resolveOwnPhaseEntries(
     namedRules?: NamedRuleRegistry,
     namedRuleSets?: NamedRuleSetRegistry,
     pluginRegistry?: GraphPluginRegistry,
+    plugins: GraphPluginRef[] = this.plugins,
   ): ResolvedPhaseEntry[] {
     const resolvedPlugins = this.resolveOwnPlugins(
       namedRules,
       namedRuleSets,
       pluginRegistry,
+      plugins,
     );
 
     const pluginEntries = this.resolvePhasePlan(
@@ -286,12 +292,13 @@ export class Profile<TOptions = Record<string, unknown>> {
     namedRules?: NamedRuleRegistry,
     namedRuleSets?: NamedRuleSetRegistry,
     pluginRegistry?: GraphPluginRegistry,
+    plugins: GraphPluginRef[] = this.plugins,
   ): {
     phases: PhasePlan;
     namedRules?: NamedRuleRegistry;
     namedRuleSets?: NamedRuleSetRegistry;
   } {
-    if (this.plugins.length === 0) {
+    if (plugins.length === 0) {
       return {
         phases: [],
         namedRules,
@@ -306,11 +313,82 @@ export class Profile<TOptions = Record<string, unknown>> {
     }
 
     return resolveGraphPlugins({
-      plugins: this.plugins,
+      plugins,
       pluginRegistry,
       namedRules,
       namedRuleSets,
     });
+  }
+
+  private collectProfileOccurrences(
+    counter: { value: number } = { value: 0 },
+  ): ProfileOccurrence<TOptions>[] {
+    const inherited = this.usesProfiles.flatMap((profile) =>
+      profile.collectProfileOccurrences(counter),
+    );
+
+    return [
+      ...inherited,
+      {
+        occurrenceId: counter.value++,
+        profile: this,
+      },
+    ];
+  }
+
+  private resolveEffectivePluginsByOccurrence(
+    occurrences: ProfileOccurrence<TOptions>[],
+  ): Map<number, GraphPluginRef[]> {
+    const pluginsByOccurrence = new Map<number, Map<number, GraphPluginRef>>();
+    const slottedPlugins = new Map<
+      string,
+      {
+        ownerOccurrenceId: number;
+        ownerPluginIndex: number;
+        pluginRef: GraphPluginRef;
+      }
+    >();
+
+    for (const occurrence of occurrences) {
+      occurrence.profile.plugins.forEach((pluginRef, index) => {
+        if (pluginRef.slot) {
+          const existing = slottedPlugins.get(pluginRef.slot);
+          if (existing) {
+            existing.pluginRef = pluginRef;
+          } else {
+            slottedPlugins.set(pluginRef.slot, {
+              ownerOccurrenceId: occurrence.occurrenceId,
+              ownerPluginIndex: index,
+              pluginRef,
+            });
+          }
+          return;
+        }
+
+        const own =
+          pluginsByOccurrence.get(occurrence.occurrenceId) ?? new Map();
+        own.set(index, pluginRef);
+        pluginsByOccurrence.set(occurrence.occurrenceId, own);
+      });
+    }
+
+    for (const slotEntry of slottedPlugins.values()) {
+      const own =
+        pluginsByOccurrence.get(slotEntry.ownerOccurrenceId) ?? new Map();
+      own.set(slotEntry.ownerPluginIndex, slotEntry.pluginRef);
+      pluginsByOccurrence.set(slotEntry.ownerOccurrenceId, own);
+    }
+
+    return new Map(
+      occurrences.map((occurrence) => {
+        const own =
+          pluginsByOccurrence.get(occurrence.occurrenceId) ?? new Map();
+        const ordered = [...own.entries()]
+          .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
+          .map(([, pluginRef]) => pluginRef);
+        return [occurrence.occurrenceId, ordered];
+      }),
+    );
   }
 
   private resolveRule(
