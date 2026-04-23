@@ -1,3 +1,10 @@
+# [1.0.0-rc.11](https://github.com/terra-graph/core/compare/v1.0.0-rc.10...v1.0.0-rc.11) (2026-04-23)
+
+
+### Features
+
+* address loopback edges ([48a8de0](https://github.com/terra-graph/core/commit/48a8de0c237891d711afe287fa2703bb5efe2637))
+
 # [1.0.0-rc.10](https://github.com/terra-graph/core/compare/v1.0.0-rc.9...v1.0.0-rc.10) (2026-04-21)
 
 
