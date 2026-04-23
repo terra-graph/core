@@ -1,3 +1,10 @@
+# [1.0.0-rc.13](https://github.com/terra-graph/core/compare/v1.0.0-rc.12...v1.0.0-rc.13) (2026-04-23)
+
+
+### Features
+
+* add initial topology hinting ([b39efe0](https://github.com/terra-graph/core/commit/b39efe0b76ba2658782c0256e7e242e7dd53e4c5))
+
 # [1.0.0-rc.12](https://github.com/terra-graph/core/compare/v1.0.0-rc.11...v1.0.0-rc.12) (2026-04-23)
 
 
