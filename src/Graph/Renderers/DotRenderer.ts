@@ -56,6 +56,7 @@ export class DotRenderer implements Renderer<DotAdapter> {
     let output = dot.write(graph);
     output = this.applyLegend(output, tg);
     output = this.applyRanks(output, adapter);
+    output = this.normalizeQuotedHtmlLabels(output);
     return {
       content: output,
       mediaType: 'text/vnd.graphviz',
@@ -233,9 +234,15 @@ ${legendRows}
     return `"${escaped}"`;
   }
 
+  private normalizeQuotedHtmlLabels(output: string): string {
+    const normalized = output.replace(/"\s*<</g, '<<').replace(/>>\s*"/g, '>>');
+
+    return this.unescapeHtmlLabelQuotes(normalized);
+  }
+
   private unescapeHtmlLabelQuotes(output: string): string {
     return output.replace(/<<[\s\S]*?>>/g, (label) =>
-      label.replaceAll('\\"', '"'),
+      label.replace(/\\+"/g, '"'),
     );
   }
 

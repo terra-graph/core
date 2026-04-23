@@ -306,6 +306,59 @@ describe('DotRenderer.render', () => {
     expect(output).not.toContain('cluster_Legend');
   });
 
+  it('shoud unquote html labels even when legend and description are empty', () => {
+    const htmlNode = asNodeId('node-html');
+    const providerNode = asNodeId(
+      'tg:1.0.0:provider:provider["registry.terraform.io/hashicorp/aws"]',
+    );
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [htmlNode]: {
+          id: htmlNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.html',
+            resource: 'aws_s3_bucket',
+            name: 'html',
+          },
+          adapter: {
+            [DotAdapter.name]: {
+              label: '<<table><tr><td>\\"hello\\"</td></tr></table>>',
+              shape: 'plaintext',
+            },
+          },
+        },
+        [providerNode]: {
+          id: providerNode,
+          terraform: {
+            kind: 'provider',
+            address: 'provider["registry.terraform.io/hashicorp/aws"]',
+            name: 'aws',
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain(
+      'label=<<table><tr><td>"hello"</td></tr></table>>',
+    );
+    expect(output).not.toContain(
+      'label="<<table><tr><td>\\"hello\\"</td></tr></table>>"',
+    );
+    expect(output).toContain(
+      'provider[\\"registry.terraform.io/hashicorp/aws\\"]',
+    );
+  });
+
   it('shoud render module and root node labels', () => {
     const moduleNode = asNodeId('module-node');
     const rootNode = asNodeId('root-node');
