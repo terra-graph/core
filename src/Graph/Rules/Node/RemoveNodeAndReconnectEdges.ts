@@ -22,6 +22,9 @@ export class RemoveNodeAndReconnectEdges extends NodeRule {
         const sourceId = updated.edgeSource(inEdgeId);
         for (const outEdgeId of outEdges) {
           const targetId = updated.edgeTarget(outEdgeId);
+          if (sourceId === targetId) {
+            continue;
+          }
           const edgeId = edgeIdFrom(
             sourceId,
             targetId,
@@ -35,6 +38,9 @@ export class RemoveNodeAndReconnectEdges extends NodeRule {
         const targetId = updated.edgeTarget(outEdgeId);
         for (const inEdgeId of inEdges) {
           const sourceId = updated.edgeSource(inEdgeId);
+          if (sourceId === targetId) {
+            continue;
+          }
           const edgeId = edgeIdFrom(
             sourceId,
             targetId,

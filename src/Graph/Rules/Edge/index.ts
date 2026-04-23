@@ -7,3 +7,4 @@ export * from './EdgeReverse.js';
 export * from './EdgeSemanticLegend.js';
 export * from './ExplicitEdge.js';
 export * from './RemoveEdge.js';
+export * from './RemoveSelfLoopEdges.js';

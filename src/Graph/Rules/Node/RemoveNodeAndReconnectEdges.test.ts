@@ -131,4 +131,76 @@ describe('RemoveNodeAndReconnectEdges.apply', () => {
     expect(result.edgesBetween(nodeA, nodeC)).toHaveLength(1);
     expect(result.edgesBetween(nodeA, nodeD)).toHaveLength(1);
   });
+
+  it('shoud not create self-loop edges while reconnecting', () => {
+    const nodeA = asNodeId('node-a');
+    const nodeB = asNodeId('node-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: { id: nodeA, label: 'A' },
+        [nodeB]: { id: nodeB, label: 'B' },
+      },
+      edges: [
+        { id: asEdgeId('edge-a-b'), from: nodeA, to: nodeB, attributes: {} },
+        { id: asEdgeId('edge-b-a'), from: nodeB, to: nodeA, attributes: {} },
+      ],
+    };
+
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const node = adapter.getNodeAttributes(nodeB);
+    if (!node) {
+      throw new Error('Missing node attributes for node-b');
+    }
+
+    const hook = new RemoveNodeAndReconnectEdges({
+      node: { nodeId: { eq: 'node-b' } },
+    });
+
+    hook.match(nodeB, node, adapter);
+    const result = hook.apply(nodeB, node, adapter);
+
+    expect(result.getNodeAttributes(nodeB)).toBeUndefined();
+    expect(result.edgesBetween(nodeA, nodeA)).toHaveLength(0);
+  });
+
+  it('shoud skip self-loop redirects in the outEdges>inEdges branch', () => {
+    const nodeA = asNodeId('node-a');
+    const nodeB = asNodeId('node-b');
+    const nodeC = asNodeId('node-c');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: { id: nodeA, label: 'A' },
+        [nodeB]: { id: nodeB, label: 'B' },
+        [nodeC]: { id: nodeC, label: 'C' },
+      },
+      edges: [
+        { id: asEdgeId('edge-a-b'), from: nodeA, to: nodeB, attributes: {} },
+        { id: asEdgeId('edge-b-a'), from: nodeB, to: nodeA, attributes: {} },
+        { id: asEdgeId('edge-b-c'), from: nodeB, to: nodeC, attributes: {} },
+      ],
+    };
+
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const node = adapter.getNodeAttributes(nodeB);
+    if (!node) {
+      throw new Error('Missing node attributes for node-b');
+    }
+
+    const hook = new RemoveNodeAndReconnectEdges({
+      node: { nodeId: { eq: 'node-b' } },
+    });
+
+    hook.match(nodeB, node, adapter);
+    const result = hook.apply(nodeB, node, adapter);
+
+    expect(result.getNodeAttributes(nodeB)).toBeUndefined();
+    expect(result.edgesBetween(nodeA, nodeA)).toHaveLength(0);
+    expect(result.edgesBetween(nodeA, nodeC)).toHaveLength(1);
+  });
 });

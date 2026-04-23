@@ -29,8 +29,10 @@ export class ConvertNodeToEdge extends NodeRule {
     };
 
     let updated = graph.removeEdge(inEdgeId).removeEdge(outEdgeId);
-    const edgeId = edgeIdFrom(sourceId, targetId);
-    updated = updated.setEdge(edgeId, sourceId, targetId, { renderHints });
+    if (sourceId !== targetId) {
+      const edgeId = edgeIdFrom(sourceId, targetId);
+      updated = updated.setEdge(edgeId, sourceId, targetId, { renderHints });
+    }
     updated = updated.removeNode(nodeId);
 
     return updated;

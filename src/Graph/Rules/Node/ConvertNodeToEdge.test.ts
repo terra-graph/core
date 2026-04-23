@@ -177,4 +177,49 @@ describe('ConvertNodeToEdge.apply', () => {
       renderHints: { resource: '', name: '' },
     });
   });
+
+  it('shoud remove wrapper node without creating a self-loop edge', () => {
+    const nodeA = asNodeId('node-a');
+    const nodeWrapper = asNodeId('resource.wrapper');
+    const edgeIn = asEdgeId('edge-in');
+    const edgeOut = asEdgeId('edge-out');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: { id: nodeA, label: 'A' },
+        [nodeWrapper]: {
+          id: nodeWrapper,
+          label: 'resource.wrapper',
+          terraform: {
+            kind: 'resource',
+            address: 'resource.wrapper',
+            resource: 'resource',
+            name: 'wrapper',
+          },
+        },
+      },
+      edges: [
+        { id: edgeIn, from: nodeA, to: nodeWrapper, attributes: {} },
+        { id: edgeOut, from: nodeWrapper, to: nodeA, attributes: {} },
+      ],
+    };
+
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const node = adapter.getNodeAttributes(nodeWrapper);
+    if (!node) {
+      throw new Error('Missing node attributes for resource.wrapper');
+    }
+
+    const hook = new ConvertNodeToEdge({
+      node: { attr: { key: 'label', eq: 'resource.wrapper' } },
+    });
+
+    hook.match(nodeWrapper, node, adapter);
+    const result = hook.apply(nodeWrapper, node, adapter);
+
+    expect(result.getNodeAttributes(nodeWrapper)).toBeUndefined();
+    expect(result.edgesBetween(nodeA, nodeA)).toHaveLength(0);
+  });
 });

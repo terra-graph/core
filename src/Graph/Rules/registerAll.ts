@@ -12,3 +12,4 @@ import './Edge/EdgeReverse.js';
 import './Edge/EdgeSemanticLegend.js';
 import './Edge/ExplicitEdge.js';
 import './Edge/RemoveEdge.js';
+import './Edge/RemoveSelfLoopEdges.js';
