@@ -9,6 +9,7 @@ import {
   TgEdge,
   type TgEdgeAttributes,
   TgGraph,
+  type TgGraphHints,
   TgNode,
   TgNodeAttributes,
   TgNodeKind,
@@ -24,6 +25,7 @@ import {
 export enum GraphAttributeKey {
   Description = 'tg:description',
   SchemaVersion = 'tg:schemaVersion',
+  Hints = 'tg:hints',
 }
 
 export class GraphologyAdapter implements AdapterOperations {
@@ -48,6 +50,7 @@ export class GraphologyAdapter implements AdapterOperations {
         GraphAttributeKey.SchemaVersion,
         tg.schemaVersion ?? TG_SCHEMA_VERSION,
       );
+      graph.setAttribute(GraphAttributeKey.Hints, tg.hints);
     });
   }
 
@@ -99,12 +102,17 @@ export class GraphologyAdapter implements AdapterOperations {
       GraphAttributeKey.SchemaVersion,
       TG_SCHEMA_VERSION,
     );
+    const hints = this.readGraphAttribute<TgGraphHints | undefined>(
+      GraphAttributeKey.Hints,
+      undefined,
+    );
 
     return {
       schemaVersion,
       nodes,
       edges,
       description,
+      ...(hints !== undefined ? { hints } : {}),
     };
   }
 
@@ -123,6 +131,13 @@ export class GraphologyAdapter implements AdapterOperations {
       return undefined;
     }
     return this.graph.getNodeAttributes(nodeId) as TgNodeAttributes;
+  }
+
+  public getGraphHints(): TgGraphHints | undefined {
+    return this.readGraphAttribute<TgGraphHints | undefined>(
+      GraphAttributeKey.Hints,
+      undefined,
+    );
   }
 
   public getEdgeAttributes(edgeId: EdgeId): TgEdgeAttributes {
@@ -168,6 +183,16 @@ export class GraphologyAdapter implements AdapterOperations {
   public setNodeAttributes(nodeId: NodeId, attributes: TgNodeAttributes): this {
     return this.mutateGraph((graph) => {
       graph.mergeNode(nodeId, attributes);
+    });
+  }
+
+  public setGraphHints(hints?: TgGraphHints): this {
+    return this.mutateGraph((graph) => {
+      if (hints === undefined) {
+        graph.removeAttribute(GraphAttributeKey.Hints);
+        return;
+      }
+      graph.setAttribute(GraphAttributeKey.Hints, hints);
     });
   }
 

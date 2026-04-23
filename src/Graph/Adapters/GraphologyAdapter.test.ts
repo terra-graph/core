@@ -85,6 +85,39 @@ describe('GraphologyAdapter.getNodeAttributes', () => {
   });
 });
 
+describe('GraphologyAdapter.getGraphHints', () => {
+  it('shoud return graph hints when present', () => {
+    const graph = new DirectedGraph();
+    graph.setAttribute('tg:hints', {
+      topology: {
+        scopes: {
+          scopeA: {
+            id: 'scope-a',
+          },
+        },
+      },
+    });
+
+    const adapter = new GraphologyAdapter(graph);
+
+    expect(adapter.getGraphHints()).toStrictEqual({
+      topology: {
+        scopes: {
+          scopeA: {
+            id: 'scope-a',
+          },
+        },
+      },
+    });
+  });
+
+  it('shoud return undefined when graph hints are missing', () => {
+    const adapter = new GraphologyAdapter(new DirectedGraph());
+
+    expect(adapter.getGraphHints()).toBeUndefined();
+  });
+});
+
 describe('GraphologyAdapter.getEdgeAttributes', () => {
   it('shoud return edge attributes', () => {
     const { graph, e1 } = buildGraphFixture();
@@ -175,6 +208,62 @@ describe('GraphologyAdapter.setNodeAttributes', () => {
 
     expect(updated.getNodeAttributes(a)).toStrictEqual({ label: 'A2' });
     expect(adapter.getNodeAttributes(a)).toStrictEqual({ label: 'A' });
+  });
+});
+
+describe('GraphologyAdapter.setGraphHints', () => {
+  it('shoud set graph hints and return a new adapter', () => {
+    const { graph } = buildGraphFixture();
+    const adapter = new GraphologyAdapter(graph);
+
+    const updated = adapter.setGraphHints({
+      topology: {
+        scopes: {
+          scopeA: {
+            id: 'scope-a',
+          },
+        },
+      },
+    });
+
+    expect(updated).not.toBe(adapter);
+    expect(updated.getGraphHints()).toStrictEqual({
+      topology: {
+        scopes: {
+          scopeA: {
+            id: 'scope-a',
+          },
+        },
+      },
+    });
+    expect(adapter.getGraphHints()).toBeUndefined();
+  });
+
+  it('shoud clear graph hints when set to undefined', () => {
+    const graph = new DirectedGraph();
+    graph.setAttribute('tg:hints', {
+      topology: {
+        scopes: {
+          scopeA: {
+            id: 'scope-a',
+          },
+        },
+      },
+    });
+
+    const adapter = new GraphologyAdapter(graph);
+    const updated = adapter.setGraphHints(undefined);
+
+    expect(updated.getGraphHints()).toBeUndefined();
+    expect(adapter.getGraphHints()).toStrictEqual({
+      topology: {
+        scopes: {
+          scopeA: {
+            id: 'scope-a',
+          },
+        },
+      },
+    });
   });
 });
 
@@ -294,6 +383,58 @@ describe('GraphologyAdapter.withTgGraph', () => {
     );
 
     expect(updated.toTgGraph().schemaVersion).toBe(TG_SCHEMA_VERSION);
+  });
+
+  it('shoud preserve graph and node topology/cardinality hints', () => {
+    const nodeId = asNodeId('node-a');
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            network: {
+              id: 'network',
+              label: 'Network',
+            },
+            subnet: {
+              id: 'subnet',
+              label: 'Subnet',
+              parentId: 'network',
+              order: 2,
+            },
+          },
+        },
+      },
+      nodes: {
+        [nodeId]: {
+          id: nodeId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.main',
+            resource: 'aws_instance',
+            name: 'main',
+          },
+          hints: {
+            topology: {
+              scopeId: 'subnet',
+              lane: 'private',
+              order: 1,
+            },
+            cardinality: {
+              count: 3,
+              mode: 'count',
+              keys: ['0', '1', '2'],
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const updated = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+
+    expect(updated.toTgGraph()).toStrictEqual(tg);
   });
 });
 

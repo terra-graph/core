@@ -306,6 +306,442 @@ describe('DotRenderer.render', () => {
     expect(output).not.toContain('cluster_Legend');
   });
 
+  it('shoud keep output unchanged when topology hints are absent', () => {
+    const nodeA = asNodeId('node-a');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeA]: {
+          id: nodeA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.a',
+            resource: 'aws_s3_bucket',
+            name: 'a',
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).not.toContain('cluster_scope_');
+  });
+
+  it('shoud render nested topology scopes and parent scoped nodes', () => {
+    const scopedNode = asNodeId('scoped-node');
+    const unscopedNode = asNodeId('unscoped-node');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            subnet: {
+              id: 'subnet',
+              label: 'Private Subnet',
+              parentId: 'vpc',
+              order: 2,
+            },
+            vpc: {
+              id: 'vpc',
+              label: 'Main VPC',
+              order: 1,
+            },
+          },
+        },
+      },
+      nodes: {
+        [scopedNode]: {
+          id: scopedNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.scoped',
+            resource: 'aws_instance',
+            name: 'scoped',
+          },
+          hints: {
+            topology: {
+              scopeId: 'subnet',
+            },
+          },
+        },
+        [unscopedNode]: {
+          id: unscopedNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.unscoped',
+            resource: 'aws_instance',
+            name: 'unscoped',
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('subgraph cluster_scope_vpc');
+    expect(output).toContain('subgraph cluster_scope_subnet');
+    expect(output.indexOf('subgraph cluster_scope_vpc')).toBeLessThan(
+      output.indexOf('subgraph cluster_scope_subnet'),
+    );
+
+    const subnetBlock = output.match(
+      /subgraph cluster_scope_subnet \{([\s\S]*?)\n\s*\}/,
+    );
+    expect(subnetBlock).toBeTruthy();
+    expect(subnetBlock?.[1]).toContain('"scoped-node"');
+    expect(subnetBlock?.[1]).not.toContain('"unscoped-node"');
+    expect(output).toContain('"unscoped-node"');
+  });
+
+  it('shoud order topology scopes by order then id', () => {
+    const nodeAlpha = asNodeId('node-alpha');
+    const nodeBeta = asNodeId('node-beta');
+    const nodeZeta = asNodeId('node-zeta');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            zeta: {
+              id: 'zeta',
+              order: 2,
+            },
+            alpha: {
+              id: 'alpha',
+              order: 2,
+            },
+            beta: {
+              id: 'beta',
+              order: 1,
+            },
+          },
+        },
+      },
+      nodes: {
+        [nodeAlpha]: {
+          id: nodeAlpha,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.alpha',
+            resource: 'aws_s3_bucket',
+            name: 'alpha',
+          },
+          hints: {
+            topology: {
+              scopeId: 'alpha',
+            },
+          },
+        },
+        [nodeBeta]: {
+          id: nodeBeta,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.beta',
+            resource: 'aws_s3_bucket',
+            name: 'beta',
+          },
+          hints: {
+            topology: {
+              scopeId: 'beta',
+            },
+          },
+        },
+        [nodeZeta]: {
+          id: nodeZeta,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.zeta',
+            resource: 'aws_s3_bucket',
+            name: 'zeta',
+          },
+          hints: {
+            topology: {
+              scopeId: 'zeta',
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    const beta = output.indexOf('subgraph cluster_scope_beta');
+    const alpha = output.indexOf('subgraph cluster_scope_alpha');
+    const zeta = output.indexOf('subgraph cluster_scope_zeta');
+
+    expect(beta).toBeGreaterThan(-1);
+    expect(alpha).toBeGreaterThan(-1);
+    expect(zeta).toBeGreaterThan(-1);
+    expect(beta).toBeLessThan(alpha);
+    expect(alpha).toBeLessThan(zeta);
+  });
+
+  it('shoud ignore invalid scope refs and break cyclic scope parents', () => {
+    const nodeA = asNodeId('node-a');
+    const scopeNodeA = asNodeId('scope-node-a');
+    const scopeNodeB = asNodeId('scope-node-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            scopeA: {
+              id: 'scope_a',
+              parentId: 'scope_b',
+            },
+            scopeB: {
+              id: 'scope_b',
+              parentId: 'scope_a',
+            },
+          },
+        },
+      },
+      nodes: {
+        [nodeA]: {
+          id: nodeA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.a',
+            resource: 'aws_s3_bucket',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'missing_scope',
+            },
+          },
+        },
+        [scopeNodeA]: {
+          id: scopeNodeA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.scope_a',
+            resource: 'aws_s3_bucket',
+            name: 'scope_a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'scope_a',
+            },
+          },
+        },
+        [scopeNodeB]: {
+          id: scopeNodeB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.scope_b',
+            resource: 'aws_s3_bucket',
+            name: 'scope_b',
+          },
+          hints: {
+            topology: {
+              scopeId: 'scope_b',
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('subgraph cluster_scope_scope_a');
+    expect(output).toContain('subgraph cluster_scope_scope_b');
+    expect(output).toContain('"node-a"');
+    expect(output).toContain('"scope-node-a"');
+    expect(output).toContain('"scope-node-b"');
+    expect(output).not.toMatch(
+      /subgraph cluster_scope_scope_a \{[^{}]*subgraph cluster_scope_scope_b \{/,
+    );
+    expect(output).not.toMatch(
+      /subgraph cluster_scope_scope_b \{[^{}]*subgraph cluster_scope_scope_a \{/,
+    );
+  });
+
+  it('shoud ignore invalid topology scope entries', () => {
+    const nodeA = asNodeId('node-a');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            valid: {
+              id: 'valid',
+              label: 'Valid',
+            },
+            invalid: {} as unknown as {
+              id: string;
+            },
+          },
+        },
+      },
+      nodes: {
+        [nodeA]: {
+          id: nodeA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.a',
+            resource: 'aws_s3_bucket',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'valid',
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('subgraph cluster_scope_valid');
+    expect(output).not.toContain('cluster_scope_undefined');
+  });
+
+  it('shoud append cardinality suffix only when enabled', () => {
+    const nodeMany = asNodeId('node-many');
+    const nodeSingle = asNodeId('node-single');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeMany]: {
+          id: nodeMany,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.many',
+            resource: 'aws_s3_bucket',
+            name: 'many',
+          },
+          hints: {
+            cardinality: {
+              count: 3,
+              mode: 'count',
+            },
+          },
+        },
+        [nodeSingle]: {
+          id: nodeSingle,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.single',
+            resource: 'aws_s3_bucket',
+            name: 'single',
+          },
+          hints: {
+            cardinality: {
+              count: 1,
+              mode: 'count',
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const disabledOutput = toTextContent(new DotRenderer().render(adapter));
+    const enabledOutput = toTextContent(
+      new DotRenderer({
+        layout: { cardinalityLabel: 'suffix' },
+      }).render(adapter),
+    );
+
+    expect(disabledOutput).toContain('label="aws_s3_bucket.many"');
+    expect(disabledOutput).not.toContain('label="aws_s3_bucket.many x3"');
+    expect(enabledOutput).toContain('label="aws_s3_bucket.many x3"');
+    expect(enabledOutput).not.toContain('label="aws_s3_bucket.single x1"');
+  });
+
+  it('shoud no-op cardinality suffix for html and non-string labels', () => {
+    const htmlNode = asNodeId('html-node');
+    const numericNode = asNodeId('numeric-node');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [htmlNode]: {
+          id: htmlNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.html',
+            resource: 'aws_s3_bucket',
+            name: 'html',
+          },
+          hints: {
+            cardinality: {
+              count: 3,
+            },
+          },
+          adapter: {
+            [DotAdapter.name]: {
+              label: '<<table><tr><td>custom</td></tr></table>>',
+            },
+          },
+        },
+        [numericNode]: {
+          id: numericNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.numeric',
+            resource: 'aws_s3_bucket',
+            name: 'numeric',
+          },
+          hints: {
+            cardinality: {
+              count: 3,
+            },
+          },
+          adapter: {
+            [DotAdapter.name]: {
+              label: 42,
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const output = toTextContent(
+      new DotRenderer({
+        layout: { cardinalityLabel: 'suffix' },
+      }).render(adapter),
+    );
+
+    expect(output).toContain('<<table><tr><td>custom</td></tr></table>>');
+    expect(output).not.toContain('custom x3');
+    expect(output).toContain('label=42');
+  });
+
   it('shoud unquote html labels even when legend and description are empty', () => {
     const htmlNode = asNodeId('node-html');
     const providerNode = asNodeId(
@@ -1316,6 +1752,23 @@ describe('DotRenderer.applyRanks', () => {
     const next = subject.applyRanks(output, ranked);
 
     expect(next).toContain('"node-\\"a\\"" "node-b"');
+  });
+});
+
+describe('DotRenderer.scopeParentCreatesCycle', () => {
+  it('shoud return false when parent id is empty', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      scopeParentCreatesCycle: (
+        scopeId: string,
+        parentId: string,
+        scopesById: Map<string, { id: string; parentId?: string }>,
+      ) => boolean;
+    };
+
+    expect(subject.scopeParentCreatesCycle('scope-a', '', new Map())).toBe(
+      false,
+    );
   });
 });
 

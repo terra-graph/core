@@ -3,11 +3,13 @@ import type {
   EdgeId,
   NodeId,
   TgEdgeAttributes,
+  TgGraphHints,
   TgNodeAttributes,
 } from '../TgGraph.js';
 
 // Minimal traversal/mutation surface for rules/plugins to depend on.
 export interface Operations {
+  getGraphHints(): TgGraphHints | undefined;
   getNodeAttributes(nodeId: NodeId): TgNodeAttributes | undefined;
   getEdgeAttributes(edgeId: EdgeId): TgEdgeAttributes;
   edgeSource(edgeId: EdgeId): NodeId;
@@ -20,6 +22,7 @@ export interface Operations {
   outEdges(nodeId: NodeId): EdgeId[];
   edgesBetween(source: NodeId, target: NodeId): EdgeId[];
   setNodeAttributes(nodeId: NodeId, attributes: TgNodeAttributes): this;
+  setGraphHints(hints?: TgGraphHints): this;
   setEdge(
     edgeId: EdgeId,
     source: NodeId,

@@ -2,7 +2,7 @@ import { Graph as GraphLibGraph } from 'graphlib';
 import dot from 'graphlib-dot';
 import { DotAdapter } from '../Adapters/DotAdapter.js';
 import { RenderArtifact, Renderer } from '../Renderer.js';
-import { TgEdge, TgGraph, TgNode } from '../TgGraph.js';
+import { TgEdge, TgGraph, TgNode, type TgTopologyScope } from '../TgGraph.js';
 import { TgNodeLabel } from './TgNodeLabel.js';
 
 type DotGraphAttributes = {
@@ -14,11 +14,16 @@ type DotGraphAttributes = {
 
 export type DotRendererOptions = {
   graph?: DotGraphAttributes;
+  layout?: DotLayoutOptions;
 };
 
 type DotLegendEntry = {
   title: string;
   colour: string;
+};
+
+type DotLayoutOptions = {
+  cardinalityLabel?: 'off' | 'suffix';
 };
 
 const defaultGraphOptions: DotRendererOptions = {
@@ -30,12 +35,17 @@ const defaultGraphOptions: DotRendererOptions = {
   },
 };
 
+const defaultLayoutOptions: Required<DotLayoutOptions> = {
+  cardinalityLabel: 'off',
+};
+
 export class DotRenderer implements Renderer<DotAdapter> {
   private readonly options: DotRendererOptions;
 
   constructor(options: DotRendererOptions = {}) {
     this.options = {
       graph: DotRenderer.resolveGraphOptions(options.graph),
+      layout: DotRenderer.resolveLayoutOptions(options.layout),
     };
   }
 
@@ -65,8 +75,17 @@ export class DotRenderer implements Renderer<DotAdapter> {
   }
 
   private addNodes(graph: GraphLibGraph, tg: TgGraph) {
+    const scopes = this.resolveTopologyScopes(tg);
+    this.addTopologyScopeNodes(graph, scopes);
+    this.addTopologyScopeParents(graph, scopes);
+    const topologyScopeIds = new Set(scopes.map((scope) => scope.id));
+
     for (const node of Object.values(tg.nodes)) {
       graph.setNode(node.id, this.toDotNodeAttributes(node));
+      const scopeId = node.hints?.topology?.scopeId;
+      if (scopeId && topologyScopeIds.has(scopeId)) {
+        graph.setParent(node.id, this.toTopologyScopeNodeId(scopeId));
+      }
     }
   }
 
@@ -97,10 +116,12 @@ export class DotRenderer implements Renderer<DotAdapter> {
   }
 
   private toDotNodeAttributes(node: TgNode): Record<string, unknown> {
-    return {
+    const attributes: Record<string, unknown> = {
       label: this.buildNodeLabel(node),
       ...(node.adapter?.[DotAdapter.name] ?? {}),
     };
+
+    return this.applyCardinalitySuffix(attributes, node);
   }
 
   private toDotEdgeAttributes(edge: TgEdge): Record<string, unknown> {
@@ -229,6 +250,150 @@ ${legendRows}
     return new TgNodeLabel(node).getLabel();
   }
 
+  private applyCardinalitySuffix(
+    attributes: Record<string, unknown>,
+    node: TgNode,
+  ): Record<string, unknown> {
+    if (this.options.layout?.cardinalityLabel !== 'suffix') {
+      return attributes;
+    }
+
+    const count = node.hints?.cardinality?.count;
+    if (typeof count !== 'number' || !Number.isFinite(count) || count <= 1) {
+      return attributes;
+    }
+
+    const label = attributes.label;
+    if (typeof label !== 'string') {
+      return attributes;
+    }
+
+    if (label.trimStart().startsWith('<<')) {
+      return attributes;
+    }
+
+    return {
+      ...attributes,
+      label: `${label} x${count}`,
+    };
+  }
+
+  private resolveTopologyScopes(tg: TgGraph): TgTopologyScope[] {
+    const scopes = new Map<string, TgTopologyScope>();
+
+    for (const scope of Object.values(tg.hints?.topology?.scopes ?? {})) {
+      if (this.isTopologyScope(scope)) {
+        scopes.set(scope.id, scope);
+      }
+    }
+
+    return [...scopes.values()].sort((left, right) => {
+      const leftOrder =
+        typeof left.order === 'number' ? left.order : Number.MAX_SAFE_INTEGER;
+      const rightOrder =
+        typeof right.order === 'number' ? right.order : Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      return left.id.localeCompare(right.id);
+    });
+  }
+
+  private addTopologyScopeNodes(
+    graph: GraphLibGraph,
+    scopes: TgTopologyScope[],
+  ) {
+    for (const scope of scopes) {
+      graph.setNode(
+        this.toTopologyScopeNodeId(scope.id),
+        this.toDotScopeAttributes(scope),
+      );
+    }
+  }
+
+  private addTopologyScopeParents(
+    graph: GraphLibGraph,
+    scopes: TgTopologyScope[],
+  ) {
+    const scopesById = new Map(scopes.map((scope) => [scope.id, scope]));
+
+    for (const scope of scopes) {
+      const parentId = this.resolveScopeParentId(scope.id, scopesById);
+      if (!parentId) {
+        continue;
+      }
+
+      graph.setParent(
+        this.toTopologyScopeNodeId(scope.id),
+        this.toTopologyScopeNodeId(parentId),
+      );
+    }
+  }
+
+  private resolveScopeParentId(
+    scopeId: string,
+    scopesById: Map<string, TgTopologyScope>,
+  ): string | undefined {
+    const parentId = scopesById.get(scopeId)?.parentId;
+    if (!parentId || !scopesById.has(parentId)) {
+      return undefined;
+    }
+
+    if (this.scopeParentCreatesCycle(scopeId, parentId, scopesById)) {
+      return undefined;
+    }
+
+    return parentId;
+  }
+
+  private scopeParentCreatesCycle(
+    scopeId: string,
+    parentId: string,
+    scopesById: Map<string, TgTopologyScope>,
+  ): boolean {
+    const visited = new Set<string>([scopeId]);
+    let current: string | undefined = parentId;
+
+    while (current) {
+      if (visited.has(current)) {
+        return true;
+      }
+      visited.add(current);
+
+      const next: string | undefined = scopesById.get(current)?.parentId;
+      if (!next || !scopesById.has(next)) {
+        return false;
+      }
+      current = next;
+    }
+
+    return false;
+  }
+
+  private toDotScopeAttributes(
+    scope: TgTopologyScope,
+  ): Record<string, unknown> {
+    return {
+      label: scope.label ?? scope.id,
+      ...(scope.adapter?.[DotAdapter.name] ?? {}),
+    };
+  }
+
+  private toTopologyScopeNodeId(scopeId: string): string {
+    return `cluster_scope_${scopeId}`;
+  }
+
+  private isTopologyScope(value: unknown): value is TgTopologyScope {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value) &&
+      'id' in value &&
+      typeof (value as { id?: unknown }).id === 'string' &&
+      (value as { id: string }).id.length > 0
+    );
+  }
+
   private quoteDotId(nodeId: string): string {
     const escaped = nodeId.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
     return `"${escaped}"`;
@@ -264,5 +429,14 @@ ${legendRows}
     }
 
     return graphOptions;
+  }
+
+  private static resolveLayoutOptions(
+    input?: DotLayoutOptions,
+  ): Required<DotLayoutOptions> {
+    return {
+      ...defaultLayoutOptions,
+      ...(input ?? {}),
+    };
   }
 }

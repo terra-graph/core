@@ -94,8 +94,38 @@ export type TgNodeLabelHints = {
   end?: string;
 };
 
+export type TgNodeTopologyHints = {
+  scopeId?: string;
+  lane?: string;
+  order?: number;
+};
+
+export type TgNodeCardinalityHints = {
+  count: number;
+  mode?: 'count' | 'for_each' | 'unknown';
+  keys?: string[];
+};
+
+export type TgTopologyScope = {
+  id: string;
+  label?: string;
+  parentId?: string;
+  order?: number;
+  adapter?: Record<string, Record<string, unknown>>;
+};
+
+export type TgGraphTopologyHints = {
+  scopes: Record<string, TgTopologyScope>;
+};
+
+export type TgGraphHints = {
+  topology?: TgGraphTopologyHints;
+};
+
 export type TgNodeHints = {
   label?: TgNodeLabelHints;
+  topology?: TgNodeTopologyHints;
+  cardinality?: TgNodeCardinalityHints;
 };
 
 export type TgNodeAttributes = {
@@ -116,6 +146,7 @@ export type TgGraph = {
   // edges reference node ids to keep the model normalized.
   edges: TgEdge[];
   description: Record<string, string>;
+  hints?: TgGraphHints;
 };
 
 export const edgeIdFrom = (
