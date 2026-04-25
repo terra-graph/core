@@ -1,3 +1,10 @@
+# [1.0.0-rc.14](https://github.com/terra-graph/core/compare/v1.0.0-rc.13...v1.0.0-rc.14) (2026-04-25)
+
+
+### Bug Fixes
+
+* topology fixes ([fb90de1](https://github.com/terra-graph/core/commit/fb90de11eaa53b9e40d2b15cdd55c986a77b50ad))
+
 # [1.0.0-rc.13](https://github.com/terra-graph/core/compare/v1.0.0-rc.12...v1.0.0-rc.13) (2026-04-23)
 
 
