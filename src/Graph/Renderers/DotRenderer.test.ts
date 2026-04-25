@@ -404,6 +404,73 @@ describe('DotRenderer.render', () => {
     expect(output).toContain('"unscoped-node"');
   });
 
+  it('shoud render empty leaf topology scopes as clusters instead of plain nodes', () => {
+    const unscopedNode = asNodeId('unscoped-node');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            vpc: {
+              id: 'vpc:vpc-1',
+              label: 'vpc-1',
+              order: 1,
+            },
+            az: {
+              id: 'vpc:vpc-1:az:unknown',
+              label: 'unknown',
+              parentId: 'vpc:vpc-1',
+              order: 2,
+            },
+            subnetA: {
+              id: 'vpc:vpc-1:az:unknown:subnet:subnet-a',
+              label: 'subnet-a',
+              parentId: 'vpc:vpc-1:az:unknown',
+              order: 3,
+            },
+            subnetB: {
+              id: 'vpc:vpc-1:az:unknown:subnet:subnet-b',
+              label: 'subnet-b',
+              parentId: 'vpc:vpc-1:az:unknown',
+              order: 4,
+            },
+          },
+        },
+      },
+      nodes: {
+        [unscopedNode]: {
+          id: unscopedNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.example',
+            resource: 'aws_iam_role',
+            name: 'example',
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain(
+      'subgraph "cluster_scope_vpc:vpc-1:az:unknown:subnet:subnet-a"',
+    );
+    expect(output).toContain(
+      'subgraph "cluster_scope_vpc:vpc-1:az:unknown:subnet:subnet-b"',
+    );
+    expect(output).not.toContain(
+      '"cluster_scope_vpc:vpc-1:az:unknown:subnet:subnet-a" [label="subnet-a"]',
+    );
+    expect(output).not.toContain(
+      '"cluster_scope_vpc:vpc-1:az:unknown:subnet:subnet-b" [label="subnet-b"]',
+    );
+  });
+
   it('shoud order topology scopes by order then id', () => {
     const nodeAlpha = asNodeId('node-alpha');
     const nodeBeta = asNodeId('node-beta');

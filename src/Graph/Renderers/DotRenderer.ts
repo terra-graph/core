@@ -304,10 +304,20 @@ ${legendRows}
     scopes: TgTopologyScope[],
   ) {
     for (const scope of scopes) {
-      graph.setNode(
-        this.toTopologyScopeNodeId(scope.id),
-        this.toDotScopeAttributes(scope),
-      );
+      const scopeNodeId = this.toTopologyScopeNodeId(scope.id);
+      graph.setNode(scopeNodeId, this.toDotScopeAttributes(scope));
+
+      // Ensure scopes are always rendered as DOT subgraphs (clusters), even when
+      // they do not yet contain scoped resource nodes.
+      const anchorNodeId = this.toTopologyScopeAnchorNodeId(scope.id);
+      graph.setNode(anchorNodeId, {
+        label: '',
+        style: 'invis',
+        width: 0,
+        height: 0,
+        fixedsize: true,
+      });
+      graph.setParent(anchorNodeId, scopeNodeId);
     }
   }
 
@@ -381,6 +391,10 @@ ${legendRows}
 
   private toTopologyScopeNodeId(scopeId: string): string {
     return `cluster_scope_${scopeId}`;
+  }
+
+  private toTopologyScopeAnchorNodeId(scopeId: string): string {
+    return `${this.toTopologyScopeNodeId(scopeId)}__anchor`;
   }
 
   private isTopologyScope(value: unknown): value is TgTopologyScope {
