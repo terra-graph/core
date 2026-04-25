@@ -390,6 +390,106 @@ describe('ModuleRuntimeProviderLoader.load', () => {
     expect((provider as { readFile?: unknown }).readFile).toBeDefined();
   });
 
+  it('shoud return false when checking provider shape of a primitive', () => {
+    const loader = new ModuleRuntimeProviderLoader();
+    // @ts-expect-error accessing private method for test coverage
+    expect(loader.hasProviderShape(1)).toBe(false);
+  });
+
+  it('shoud unwrap nested default objects before returning a provider', async () => {
+    const provider = {
+      supportedAdapterOperationsRegistry: {
+        NestedDefaultProvider: class NestedDefaultProvider {},
+      },
+    };
+    const loader = new ModuleRuntimeProviderLoader();
+    // @ts-expect-error accessing private method for test coverage
+    await expect(
+      loader.toProvider({ default: { default: provider } }),
+    ).resolves.toBe(provider);
+  });
+
+  it('shoud prefer ESM import entrypoint from package exports root when present', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'esm-entry-provider');
+    const resolvedFile = join(packageDir, 'dist', 'index.cjs');
+    const importEntry = join(packageDir, 'esm', 'index.mjs');
+
+    await mkdir(join(packageDir, 'dist'), { recursive: true });
+    await mkdir(join(packageDir, 'esm'), { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'esm-entry-provider',
+        exports: {
+          '.': {
+            import: './esm/index.mjs',
+            require: './dist/index.cjs',
+          },
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(resolvedFile, 'module.exports = {};', 'utf8');
+    await writeFile(importEntry, 'export default {};', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      // @ts-expect-error accessing private method for test coverage
+      const resolved = loader.resolveEsmEntryPathFromResolvedFile(resolvedFile);
+      expect(resolved).toBe(importEntry);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud continue walking when declared import entrypoint is missing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'missing-esm-entry-provider');
+    const resolvedFile = join(packageDir, 'dist', 'index.cjs');
+
+    await mkdir(join(packageDir, 'dist'), { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'missing-esm-entry-provider',
+        exports: {
+          '.': {
+            import: './esm/index.mjs',
+            require: './dist/index.cjs',
+          },
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(resolvedFile, 'module.exports = {};', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      // @ts-expect-error accessing private method for test coverage
+      const resolved = loader.resolveEsmEntryPathFromResolvedFile(resolvedFile);
+      expect(resolved).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud read string and object entrypoint shapes', () => {
+    const loader = new ModuleRuntimeProviderLoader();
+    // @ts-expect-error accessing private method for test coverage
+    expect(loader.readEntryPoint('./dist/esm/index.js', 'import')).toBe(
+      undefined,
+    );
+    // @ts-expect-error accessing private method for test coverage
+    expect(loader.readEntryPoint('./dist/esm/index.js', 'module')).toBe(
+      './dist/esm/index.js',
+    );
+    // @ts-expect-error accessing private method for test coverage
+    expect(
+      loader.readEntryPoint({ import: './dist/esm/index.js' }, 'import'),
+    ).toBe('./dist/esm/index.js');
+  });
+
   it('shoud throw when module does not export a runtime provider', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
     const providerPath = join(dir, 'provider.cjs');
