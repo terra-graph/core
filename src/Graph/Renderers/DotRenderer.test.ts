@@ -5,6 +5,7 @@ import {
   TG_SCHEMA_VERSION,
   TgGraph,
   TgNode,
+  type TgTopologyScope,
   asEdgeId,
   asNodeId,
 } from '../TgGraph.js';
@@ -469,6 +470,212 @@ describe('DotRenderer.render', () => {
     expect(output).not.toContain(
       '"cluster_scope_vpc:vpc-1:az:unknown:subnet:subnet-b" [label="subnet-b"]',
     );
+  });
+
+  it('shoud align symmetric topology lanes with placeholders and rank blocks', () => {
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            vpc: {
+              id: 'vpc',
+              label: 'VPC',
+              order: 1,
+            },
+            laneA: {
+              id: 'lane_a',
+              label: 'AZ A',
+              parentId: 'vpc',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'vpc:az-lanes',
+                laneKey: 'az-a',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              label: 'AZ B',
+              parentId: 'vpc',
+              order: 3,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'vpc:az-lanes',
+                laneKey: 'az-b',
+              },
+            },
+            laneAPublic: {
+              id: 'lane_a_public',
+              label: 'public-a',
+              parentId: 'lane_a',
+              order: 1,
+              layout: {
+                slotKey: 'public',
+              },
+            },
+            laneAPrivate: {
+              id: 'lane_a_private',
+              label: 'private-a',
+              parentId: 'lane_a',
+              order: 2,
+              layout: {
+                slotKey: 'private',
+              },
+            },
+            laneBPublic: {
+              id: 'lane_b_public',
+              label: 'public-b',
+              parentId: 'lane_b',
+              order: 1,
+              layout: {
+                slotKey: 'public',
+              },
+            },
+          },
+        },
+      },
+      nodes: {},
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('"cluster_scope_lane_b__slot__private"');
+    expect(output).toContain(
+      '{ rank = same; "cluster_scope_lane_a_public__anchor" "cluster_scope_lane_b_public__anchor" }',
+    );
+    expect(output).toContain(
+      '{ rank = same; "cluster_scope_lane_a_private__anchor" "cluster_scope_lane_b__slot__private" }',
+    );
+
+    const publicRankIndex = output.indexOf(
+      '{ rank = same; "cluster_scope_lane_a_public__anchor" "cluster_scope_lane_b_public__anchor" }',
+    );
+    const privateRankIndex = output.indexOf(
+      '{ rank = same; "cluster_scope_lane_a_private__anchor" "cluster_scope_lane_b__slot__private" }',
+    );
+
+    expect(publicRankIndex).toBeGreaterThan(-1);
+    expect(privateRankIndex).toBeGreaterThan(-1);
+    expect(publicRankIndex).toBeLessThan(privateRankIndex);
+  });
+
+  it('shoud degrade to natural layout when symmetric lane hints are incomplete', () => {
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            parent: {
+              id: 'parent',
+              order: 1,
+            },
+            laneA: {
+              id: 'lane_a',
+              parentId: 'parent',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'a',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              parentId: 'parent',
+              order: 3,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'b',
+              },
+            },
+            childA: {
+              id: 'child_a',
+              parentId: 'lane_a',
+              order: 1,
+            },
+            childB: {
+              id: 'child_b',
+              parentId: 'lane_b',
+              order: 1,
+            },
+          },
+        },
+      },
+      nodes: {},
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).not.toContain('__slot__');
+    expect(output).not.toContain(
+      'rank = same; "cluster_scope_child_a__anchor"',
+    );
+    expect(output).not.toContain(
+      'rank = same; "cluster_scope_child_b__anchor"',
+    );
+  });
+
+  it('shoud create placeholders for symmetric lanes that have no explicit slot scopes', () => {
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            parent: {
+              id: 'parent',
+              order: 1,
+            },
+            laneA: {
+              id: 'lane_a',
+              parentId: 'parent',
+              order: 1,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'a',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              parentId: 'parent',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'b',
+              },
+            },
+            childA: {
+              id: 'child_a',
+              parentId: 'lane_a',
+              order: 1,
+              layout: {
+                slotKey: 'shared',
+              },
+            },
+          },
+        },
+      },
+      nodes: {},
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('"cluster_scope_lane_b__slot__shared"');
   });
 
   it('shoud order topology scopes by order then id', () => {
@@ -1925,6 +2132,298 @@ describe('DotRenderer.applyRanks (empty ranks)', () => {
     const output = 'digraph { }';
 
     expect(subject.applyRanks(output, ranked)).toBe(output);
+  });
+});
+
+describe('DotRenderer symmetric topology helpers', () => {
+  it('shoud return the original output when a symmetric rank block has fewer than two lanes', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      applySymmetricTopologyRanks(output: string, tg: TgGraph): string;
+      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): unknown[];
+    };
+
+    subject.resolveSymmetricLaneGroups = () => [
+      {
+        groupId: 'g1',
+        lanes: [{ id: 'lane-a' }],
+        slots: ['slot-a'],
+        slotScopesByLaneId: new Map<string, Map<string, TgTopologyScope>>(),
+      },
+    ];
+
+    const output = subject.applySymmetricTopologyRanks('digraph G {}', {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {},
+      edges: [],
+    });
+
+    expect(output).toBe('digraph G {}');
+  });
+
+  it('shoud return the original output when symmetric ranks cannot find a closing brace', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      applySymmetricTopologyRanks(output: string, tg: TgGraph): string;
+      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): unknown[];
+    };
+
+    subject.resolveSymmetricLaneGroups = () => [
+      {
+        groupId: 'g1',
+        lanes: [{ id: 'lane-a' }, { id: 'lane-b' }],
+        slots: ['slot-a'],
+        slotScopesByLaneId: new Map<string, Map<string, TgTopologyScope>>(),
+      },
+    ];
+
+    const output = subject.applySymmetricTopologyRanks('digraph G {', {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {},
+      edges: [],
+    });
+
+    expect(output).toBe('digraph G {');
+  });
+
+  it('shoud sort symmetric slot keys and groups deterministically', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): Array<{
+        groupId: string;
+        slots: string[];
+      }>;
+      compareScopesByOrderThenId(
+        left: TgTopologyScope,
+        right: TgTopologyScope,
+      ): number;
+    };
+
+    const groups = subject.resolveSymmetricLaneGroups([
+      {
+        id: 'lane_b2',
+        parentId: 'vpc_b',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-b', laneKey: 'b2' },
+      },
+      {
+        id: 'lane_b1',
+        parentId: 'vpc_b',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-b', laneKey: 'b1' },
+      },
+      {
+        id: 'lane_a2',
+        parentId: 'vpc_a',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a2' },
+      },
+      {
+        id: 'lane_a1',
+        parentId: 'vpc_a',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a1' },
+      },
+      {
+        id: 'lane_a_slot_z',
+        parentId: 'lane_a1',
+        order: 1,
+        layout: { slotKey: 'zeta' },
+      },
+      {
+        id: 'lane_a_slot_a',
+        parentId: 'lane_a2',
+        order: 1,
+        layout: { slotKey: 'alpha' },
+      },
+      {
+        id: 'lane_b_slot_z',
+        parentId: 'lane_b1',
+        order: 2,
+        layout: { slotKey: 'zeta' },
+      },
+      {
+        id: 'lane_b_slot_a',
+        parentId: 'lane_b2',
+        order: 2,
+        layout: { slotKey: 'alpha' },
+      },
+    ]);
+
+    expect(groups.map((group) => group.groupId)).toStrictEqual([
+      'group-a',
+      'group-b',
+    ]);
+    expect(groups[0]?.slots).toStrictEqual(['alpha', 'zeta']);
+    expect(groups[1]?.slots).toStrictEqual(['alpha', 'zeta']);
+    expect(
+      subject.compareScopesByOrderThenId(
+        { id: 'beta', order: 1 },
+        { id: 'alpha', order: 1 },
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      subject.compareScopesByOrderThenId({ id: 'beta' }, { id: 'alpha' }),
+    ).toBeGreaterThan(0);
+  });
+
+  it('shoud fall back to group id ordering when symmetric group lane ordering ties', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): Array<{
+        groupId: string;
+      }>;
+      compareScopesByOrderThenId(
+        left: TgTopologyScope,
+        right: TgTopologyScope,
+      ): number;
+    };
+
+    subject.compareScopesByOrderThenId = () => 0;
+
+    const groups = subject.resolveSymmetricLaneGroups([
+      {
+        id: 'lane_z_1',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-z', laneKey: 'z' },
+      },
+      {
+        id: 'lane_z_2',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-z', laneKey: 'z-2' },
+      },
+      {
+        id: 'lane_a_1',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a' },
+      },
+      {
+        id: 'lane_a_2',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a-2' },
+      },
+      {
+        id: 'lane_z_slot',
+        parentId: 'lane_z_1',
+        order: 1,
+        layout: { slotKey: 'slot' },
+      },
+      {
+        id: 'lane_z_slot_peer',
+        parentId: 'lane_z_2',
+        order: 1,
+        layout: { slotKey: 'slot' },
+      },
+      {
+        id: 'lane_a_slot',
+        parentId: 'lane_a_1',
+        order: 1,
+        layout: { slotKey: 'slot' },
+      },
+      {
+        id: 'lane_a_slot_peer',
+        parentId: 'lane_a_2',
+        order: 1,
+        layout: { slotKey: 'slot' },
+      },
+    ]);
+
+    expect(groups.map((group) => group.groupId)).toStrictEqual([
+      'group-a',
+      'group-z',
+    ]);
+  });
+
+  it('shoud keep the lowest ordered scope when duplicate slot keys exist in one lane', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): Array<{
+        slotScopesByLaneId: Map<string, Map<string, TgTopologyScope>>;
+      }>;
+    };
+
+    const groups = subject.resolveSymmetricLaneGroups([
+      {
+        id: 'lane_a',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a' },
+      },
+      {
+        id: 'lane_b',
+        order: 2,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'b' },
+      },
+      {
+        id: 'slot_high',
+        parentId: 'lane_a',
+        order: 5,
+        layout: { slotKey: 'shared' },
+      },
+      {
+        id: 'slot_low',
+        parentId: 'lane_a',
+        order: 1,
+        layout: { slotKey: 'shared' },
+      },
+      {
+        id: 'slot_peer',
+        parentId: 'lane_b',
+        layout: { slotKey: 'shared' },
+      },
+    ]);
+
+    expect(groups[0]?.slotScopesByLaneId.get('lane_a')?.get('shared')?.id).toBe(
+      'slot_low',
+    );
+    expect(groups[0]?.slotScopesByLaneId.get('lane_b')?.get('shared')?.id).toBe(
+      'slot_peer',
+    );
+  });
+
+  it('shoud keep the existing scope when a duplicate slot key has a lower priority', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): Array<{
+        slotScopesByLaneId: Map<string, Map<string, TgTopologyScope>>;
+      }>;
+    };
+
+    const groups = subject.resolveSymmetricLaneGroups([
+      {
+        id: 'lane_a',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a' },
+      },
+      {
+        id: 'lane_b',
+        order: 2,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'b' },
+      },
+      {
+        id: 'slot_first',
+        parentId: 'lane_a',
+        order: 1,
+        layout: { slotKey: 'shared' },
+      },
+      {
+        id: 'slot_later',
+        parentId: 'lane_a',
+        order: 5,
+        layout: { slotKey: 'shared' },
+      },
+      {
+        id: 'slot_peer',
+        parentId: 'lane_b',
+        order: 1,
+        layout: { slotKey: 'shared' },
+      },
+    ]);
+
+    expect(groups[0]?.slotScopesByLaneId.get('lane_a')?.get('shared')?.id).toBe(
+      'slot_first',
+    );
   });
 });
 

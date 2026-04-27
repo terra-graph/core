@@ -106,11 +106,19 @@ export type TgNodeCardinalityHints = {
   keys?: string[];
 };
 
+export type TgTopologyScopeLayout = {
+  mode?: 'natural' | 'symmetric';
+  groupId?: string;
+  laneKey?: string;
+  slotKey?: string;
+};
+
 export type TgTopologyScope = {
   id: string;
   label?: string;
   parentId?: string;
   order?: number;
+  layout?: TgTopologyScopeLayout;
   adapter?: Record<string, Record<string, unknown>>;
 };
 
