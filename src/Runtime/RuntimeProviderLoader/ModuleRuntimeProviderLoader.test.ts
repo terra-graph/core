@@ -5,6 +5,19 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ModuleRuntimeProviderLoader } from './ModuleRuntimeProviderLoader.js';
 
+type ModuleRuntimeProviderLoaderPrivate = {
+  toProvider(value: unknown): Promise<unknown>;
+  resolveImportSpecifier(specifier: string, sourceReference?: string): string;
+  hasProviderShape(value: unknown): boolean;
+  resolveEsmEntryPathFromResolvedFile(resolvedFile: string): string | undefined;
+  readEntryPoint(value: unknown, key: string): string | undefined;
+};
+
+const asPrivate = (
+  loader: ModuleRuntimeProviderLoader,
+): ModuleRuntimeProviderLoaderPrivate =>
+  loader as unknown as ModuleRuntimeProviderLoaderPrivate;
+
 describe('ModuleRuntimeProviderLoader.load', () => {
   it('shoud load a provider from a module default object export', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
@@ -57,12 +70,11 @@ describe('ModuleRuntimeProviderLoader.load', () => {
   });
 
   it('shoud accept raw runtime providers without module export markers', async () => {
-    const provider = {} as Parameters<
-      (typeof ModuleRuntimeProviderLoader)['prototype']['toProvider']
-    >[0];
+    const provider = {};
     const loader = new ModuleRuntimeProviderLoader();
-    // @ts-expect-error accessing private method for test coverage
-    await expect(loader.toProvider(provider)).resolves.toBe(provider);
+    await expect(asPrivate(loader).toProvider(provider)).resolves.toBe(
+      provider,
+    );
   });
 
   it('shoud load a provider from a default function export', async () => {
@@ -270,7 +282,10 @@ describe('ModuleRuntimeProviderLoader.load', () => {
         name: 'esm-only',
         type: 'module',
         exports: {
-          import: './index.mjs',
+          '.': {
+            import: './index.mjs',
+            default: './index.mjs',
+          },
         },
       }),
       'utf8',
@@ -284,8 +299,10 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
     try {
       const loader = new ModuleRuntimeProviderLoader();
-      // @ts-expect-error accessing private method for test coverage
-      const resolved = loader.resolveImportSpecifier('esm-only', configPath);
+      const resolved = asPrivate(loader).resolveImportSpecifier(
+        'esm-only',
+        configPath,
+      );
       const resolvedPath = await realpath(fileURLToPath(resolved));
       const expectedPath = await realpath(join(packageDir, 'index.mjs'));
       expect(resolvedPath).toBe(expectedPath);
@@ -321,8 +338,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
     try {
       const loader = new ModuleRuntimeProviderLoader();
-      // @ts-expect-error accessing private method for test coverage
-      const resolved = loader.resolveImportSpecifier(
+      const resolved = asPrivate(loader).resolveImportSpecifier(
         'file-url-provider',
         pathToFileURL(configPath).href,
       );
@@ -341,8 +357,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
     try {
       const loader = new ModuleRuntimeProviderLoader();
-      // @ts-expect-error accessing private method for test coverage
-      const resolved = loader.resolveImportSpecifier(
+      const resolved = asPrivate(loader).resolveImportSpecifier(
         'missing-package',
         configPath,
       );
@@ -369,8 +384,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       moduleApi._nodeModulePaths = undefined;
 
       const loader = new ModuleRuntimeProviderLoader();
-      // @ts-expect-error accessing private method for test coverage
-      const resolved = loader.resolveImportSpecifier(
+      const resolved = asPrivate(loader).resolveImportSpecifier(
         'missing-package',
         configPath,
       );
@@ -392,8 +406,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud return false when checking provider shape of a primitive', () => {
     const loader = new ModuleRuntimeProviderLoader();
-    // @ts-expect-error accessing private method for test coverage
-    expect(loader.hasProviderShape(1)).toBe(false);
+    expect(asPrivate(loader).hasProviderShape(1)).toBe(false);
   });
 
   it('shoud unwrap nested default objects before returning a provider', async () => {
@@ -403,9 +416,8 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       },
     };
     const loader = new ModuleRuntimeProviderLoader();
-    // @ts-expect-error accessing private method for test coverage
     await expect(
-      loader.toProvider({ default: { default: provider } }),
+      asPrivate(loader).toProvider({ default: { default: provider } }),
     ).resolves.toBe(provider);
   });
 
@@ -435,8 +447,8 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
     try {
       const loader = new ModuleRuntimeProviderLoader();
-      // @ts-expect-error accessing private method for test coverage
-      const resolved = loader.resolveEsmEntryPathFromResolvedFile(resolvedFile);
+      const resolved =
+        asPrivate(loader).resolveEsmEntryPathFromResolvedFile(resolvedFile);
       expect(resolved).toBe(importEntry);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -466,8 +478,8 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
     try {
       const loader = new ModuleRuntimeProviderLoader();
-      // @ts-expect-error accessing private method for test coverage
-      const resolved = loader.resolveEsmEntryPathFromResolvedFile(resolvedFile);
+      const resolved =
+        asPrivate(loader).resolveEsmEntryPathFromResolvedFile(resolvedFile);
       expect(resolved).toBeUndefined();
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -476,17 +488,17 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud read string and object entrypoint shapes', () => {
     const loader = new ModuleRuntimeProviderLoader();
-    // @ts-expect-error accessing private method for test coverage
-    expect(loader.readEntryPoint('./dist/esm/index.js', 'import')).toBe(
-      undefined,
-    );
-    // @ts-expect-error accessing private method for test coverage
-    expect(loader.readEntryPoint('./dist/esm/index.js', 'module')).toBe(
-      './dist/esm/index.js',
-    );
-    // @ts-expect-error accessing private method for test coverage
     expect(
-      loader.readEntryPoint({ import: './dist/esm/index.js' }, 'import'),
+      asPrivate(loader).readEntryPoint('./dist/esm/index.js', 'import'),
+    ).toBe(undefined);
+    expect(
+      asPrivate(loader).readEntryPoint('./dist/esm/index.js', 'module'),
+    ).toBe('./dist/esm/index.js');
+    expect(
+      asPrivate(loader).readEntryPoint(
+        { import: './dist/esm/index.js' },
+        'import',
+      ),
     ).toBe('./dist/esm/index.js');
   });
 
