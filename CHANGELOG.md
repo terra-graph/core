@@ -1,3 +1,16 @@
+# [1.0.0-rc.15](https://github.com/terra-graph/core/compare/v1.0.0-rc.14...v1.0.0-rc.15) (2026-04-27)
+
+
+### Bug Fixes
+
+* type error ([60b4a41](https://github.com/terra-graph/core/commit/60b4a41a4d7d206448f5b9a25841b2e8a1849735))
+
+
+### Features
+
+* add layout hints for topology management ([0784aa7](https://github.com/terra-graph/core/commit/0784aa73f0c6a480eeaf57d0e2aa04e2b0e28d32))
+* improved provider resolution ([60913dc](https://github.com/terra-graph/core/commit/60913dcd1fe1ac45459859614f6292b26185cd11))
+
 # [1.0.0-rc.14](https://github.com/terra-graph/core/compare/v1.0.0-rc.13...v1.0.0-rc.14) (2026-04-25)
 
 
