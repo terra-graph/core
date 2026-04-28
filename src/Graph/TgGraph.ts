@@ -1,13 +1,3 @@
-// this is DOT / graphviz specific?
-// export type TgGraphMeta = {
-//   directed: boolean;
-//   multigraph: boolean;
-//   compound: boolean;
-// };
-
-// DOT / graphviz specific?
-// export type TgGraphAttributes = Record<string, string>;
-
 export type NodeId = string & { readonly __brand: 'NodeId' };
 export type EdgeId = string & { readonly __brand: 'EdgeId' };
 
@@ -130,8 +120,15 @@ export type TgGraphHints = {
   topology?: TgGraphTopologyHints;
 };
 
+export type TgNodeLayoutHints = {
+  image?: string;
+  text1?: string;
+  text2?: string;
+};
+
 export type TgNodeHints = {
   label?: TgNodeLabelHints;
+  layout?: TgNodeLayoutHints;
   topology?: TgNodeTopologyHints;
   cardinality?: TgNodeCardinalityHints;
 };

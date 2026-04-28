@@ -2,6 +2,7 @@ import { Graph as GraphLibGraph } from 'graphlib';
 import dot from 'graphlib-dot';
 import { DotAdapter } from '../Adapters/DotAdapter.js';
 import { ImportContext, Importer } from '../Importer.js';
+import { TgNodeLabel } from '../Renderers/TgNodeLabel.js';
 import {
   TG_SCHEMA_VERSION,
   TgEdgeAttributes,
@@ -38,6 +39,16 @@ export class TerraformDotImporter implements Importer {
       const node: TgNode = {
         id,
         terraform: nodeDetails,
+      };
+
+      const [text1, text2] = new TgNodeLabel(node).getResolvedElements();
+      node.hints = {
+        ...(node.hints ?? {}),
+        layout: {
+          ...(node.hints?.layout ?? {}),
+          text1,
+          text2,
+        },
       };
 
       if (Object.keys(adapterAttributes).length > 0) {

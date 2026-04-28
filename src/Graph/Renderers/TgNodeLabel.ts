@@ -46,4 +46,8 @@ export class TgNodeLabel {
     }
     return String(this.node.id);
   }
+
+  public getResolvedElements(): string[] {
+    return this.getLabel().split('.');
+  }
 }
