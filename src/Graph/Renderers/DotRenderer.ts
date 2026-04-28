@@ -10,6 +10,7 @@ type DotGraphAttributes = {
   ranksep?: number;
   nodesep?: number;
   pad?: number;
+  newrank?: boolean;
 } & Record<string, string | number | boolean | undefined>;
 
 export type DotRendererOptions = {
@@ -27,6 +28,13 @@ type SymmetricLaneGroup = {
   lanes: TgTopologyScope[];
   slots: string[];
   slotScopesByLaneId: Map<string, Map<string, TgTopologyScope>>;
+};
+
+type SymmetricContentGroup = {
+  groupId: string;
+  scopes: TgTopologyScope[];
+  slots: string[];
+  nodeIdsByScopeIdAndSlotKey: Map<string, Map<string, string[]>>;
 };
 
 type DotLayoutOptions = {
@@ -58,6 +66,12 @@ export class DotRenderer implements Renderer<DotAdapter> {
 
   public render(adapter: DotAdapter): RenderArtifact {
     const tg = adapter.toTgGraph();
+    const topologyScopes = this.resolveTopologyScopes(tg);
+    const symmetricLaneGroups = this.resolveSymmetricLaneGroups(topologyScopes);
+    const symmetricContentGroups = this.resolveSymmetricContentGroups(
+      tg,
+      topologyScopes,
+    );
     const graph = new GraphLibGraph({
       directed: true,
       multigraph: true,
@@ -65,15 +79,26 @@ export class DotRenderer implements Renderer<DotAdapter> {
     });
 
     /* istanbul ignore next */
-    graph.setGraph(this.options.graph ?? {});
+    graph.setGraph(
+      this.resolveRuntimeGraphOptions(
+        symmetricLaneGroups.length > 0 || symmetricContentGroups.length > 0,
+      ),
+    );
 
-    this.addNodes(graph, tg);
+    this.addNodes(
+      graph,
+      tg,
+      topologyScopes,
+      symmetricLaneGroups,
+      symmetricContentGroups,
+    );
     this.addEdges(graph, tg);
 
     let output = dot.write(graph);
     output = this.applyLegend(output, tg);
     output = this.applyRanks(output, adapter);
-    output = this.applySymmetricTopologyRanks(output, tg);
+    output = this.applySymmetricTopologyRanks(output, symmetricLaneGroups);
+    output = this.applySymmetricContentRanks(output, symmetricContentGroups);
     output = this.normalizeQuotedHtmlLabels(output);
     return {
       content: output,
@@ -82,11 +107,16 @@ export class DotRenderer implements Renderer<DotAdapter> {
     };
   }
 
-  private addNodes(graph: GraphLibGraph, tg: TgGraph) {
-    const scopes = this.resolveTopologyScopes(tg);
+  private addNodes(
+    graph: GraphLibGraph,
+    tg: TgGraph,
+    scopes: TgTopologyScope[],
+    symmetricLaneGroups: SymmetricLaneGroup[],
+    symmetricContentGroups: SymmetricContentGroup[],
+  ) {
     this.addTopologyScopeNodes(graph, scopes);
     this.addTopologyScopeParents(graph, scopes);
-    this.addSymmetricLanePlaceholders(graph, scopes);
+    this.addSymmetricLanePlaceholders(graph, symmetricLaneGroups);
     const topologyScopeIds = new Set(scopes.map((scope) => scope.id));
 
     for (const node of Object.values(tg.nodes)) {
@@ -96,6 +126,8 @@ export class DotRenderer implements Renderer<DotAdapter> {
         graph.setParent(node.id, this.toTopologyScopeNodeId(scopeId));
       }
     }
+
+    this.addSymmetricContentSlotAnchors(graph, symmetricContentGroups);
   }
 
   private addEdges(graph: GraphLibGraph, tg: TgGraph) {
@@ -126,6 +158,7 @@ export class DotRenderer implements Renderer<DotAdapter> {
 
   private toDotNodeAttributes(node: TgNode): Record<string, unknown> {
     const attributes: Record<string, unknown> = {
+      // initial label is set, may be overriden by adapter specific implementations
       label: this.buildDefaultNodeLabel(node),
       ...(node.adapter?.[DotAdapter.name] ?? {}),
     };
@@ -351,9 +384,9 @@ ${legendRows}
 
   private addSymmetricLanePlaceholders(
     graph: GraphLibGraph,
-    scopes: TgTopologyScope[],
+    groups: SymmetricLaneGroup[],
   ) {
-    for (const group of this.resolveSymmetricLaneGroups(scopes)) {
+    for (const group of groups) {
       for (const lane of group.lanes) {
         const laneSlotScopes =
           group.slotScopesByLaneId.get(lane.id) ?? new Map();
@@ -438,10 +471,11 @@ ${legendRows}
     return false;
   }
 
-  private applySymmetricTopologyRanks(output: string, tg: TgGraph): string {
-    const rankBlocks = this.resolveSymmetricLaneGroups(
-      this.resolveTopologyScopes(tg),
-    )
+  private applySymmetricTopologyRanks(
+    output: string,
+    groups: SymmetricLaneGroup[],
+  ): string {
+    const rankBlocks = groups
       .flatMap((group) =>
         group.slots.map((slotKey) => {
           const nodes = group.lanes.map((lane) => {
@@ -460,6 +494,118 @@ ${legendRows}
             .join(' ')} }`;
         }),
       )
+      .filter((block): block is string => !!block);
+
+    if (rankBlocks.length === 0) {
+      return output;
+    }
+
+    const lastBrace = output.lastIndexOf('}');
+    if (lastBrace === -1) {
+      return output;
+    }
+
+    return `${output.slice(0, lastBrace)}\n${rankBlocks.join('\n')}\n}`;
+  }
+
+  private addSymmetricContentSlotAnchors(
+    graph: GraphLibGraph,
+    groups: SymmetricContentGroup[],
+  ) {
+    for (const group of groups) {
+      for (const scope of group.scopes) {
+        const slotNodes = group.nodeIdsByScopeIdAndSlotKey.get(scope.id);
+        const contentAnchorIds = group.slots.map((slotKey) => {
+          const anchorNodeId = this.toTopologyContentSlotAnchorNodeId(
+            scope.id,
+            slotKey,
+          );
+          graph.setNode(anchorNodeId, {
+            label: '',
+            style: 'invis',
+            width: 0,
+            height: 0,
+            fixedsize: true,
+          });
+          graph.setParent(anchorNodeId, this.toTopologyScopeNodeId(scope.id));
+
+          const nodeIds = slotNodes?.get(slotKey) ?? [];
+          for (const nodeId of nodeIds) {
+            graph.setEdge(
+              {
+                v: anchorNodeId,
+                w: nodeId as unknown as string,
+                name: `tg.layout.content-slot-node:${group.groupId}:${scope.id}:${slotKey}:${nodeId}`,
+              },
+              {
+                style: 'invis',
+                weight: 90,
+              },
+            );
+          }
+
+          return anchorNodeId;
+        });
+
+        for (let index = 1; index < contentAnchorIds.length; index += 1) {
+          graph.setEdge(
+            {
+              v: contentAnchorIds[index - 1] as unknown as string,
+              w: contentAnchorIds[index] as unknown as string,
+              name: `tg.layout.content-slot-order:${group.groupId}:${scope.id}:${index}`,
+            },
+            {
+              style: 'invis',
+              weight: 100,
+            },
+          );
+        }
+      }
+    }
+  }
+
+  private applySymmetricContentRanks(
+    output: string,
+    groups: SymmetricContentGroup[],
+  ): string {
+    const rankBlocks = groups
+      .flatMap((group) => {
+        const blocks: string[] = [];
+
+        for (const slotKey of group.slots) {
+          const anchorNodeIds = group.scopes.map((scope) =>
+            this.toTopologyContentSlotAnchorNodeId(scope.id, slotKey),
+          );
+
+          if (anchorNodeIds.length > 1) {
+            blocks.push(
+              `  { rank = same; ${anchorNodeIds
+                .map((nodeId) => this.quoteDotId(nodeId))
+                .join(' ')} }`,
+            );
+          }
+
+          for (const scope of group.scopes) {
+            const nodeIds =
+              group.nodeIdsByScopeIdAndSlotKey.get(scope.id)?.get(slotKey) ??
+              [];
+            if (nodeIds.length === 0) {
+              continue;
+            }
+
+            blocks.push(
+              `  { rank = same; ${[
+                this.toTopologyContentSlotAnchorNodeId(scope.id, slotKey),
+                ...nodeIds,
+              ]
+                .map((nodeId) => this.quoteDotId(nodeId))
+                .join(' ')} }`,
+            );
+          }
+        }
+
+        return blocks;
+      })
       .filter((block): block is string => !!block);
 
     if (rankBlocks.length === 0) {
@@ -567,6 +713,101 @@ ${legendRows}
       });
   }
 
+  private resolveSymmetricContentGroups(
+    tg: TgGraph,
+    scopes: TgTopologyScope[],
+  ): SymmetricContentGroup[] {
+    const nodesByScopeId = new Map<string, TgNode[]>();
+    for (const node of Object.values(tg.nodes)) {
+      const scopeId = node.hints?.topology?.scopeId;
+      const slotKey = node.hints?.topology?.slotKey;
+      if (!scopeId || !slotKey) {
+        continue;
+      }
+
+      const scopedNodes = nodesByScopeId.get(scopeId) ?? [];
+      scopedNodes.push(node);
+      nodesByScopeId.set(scopeId, scopedNodes);
+    }
+
+    return this.resolveSymmetricLaneGroups(scopes)
+      .flatMap((laneGroup) =>
+        laneGroup.slots.map((scopeSlotKey) => {
+          const alignedScopes = laneGroup.lanes
+            .map((lane) =>
+              laneGroup.slotScopesByLaneId.get(lane.id)?.get(scopeSlotKey),
+            )
+            .filter((scope): scope is TgTopologyScope => !!scope)
+            .sort((left, right) =>
+              this.compareScopesByOrderThenId(left, right),
+            );
+
+          if (alignedScopes.length < 2) {
+            return undefined;
+          }
+
+          const nodeIdsByScopeIdAndSlotKey = new Map<
+            string,
+            Map<string, string[]>
+          >();
+          const slotOrderByKey = new Map<string, number>();
+
+          for (const scope of alignedScopes) {
+            const scopedNodes = [...(nodesByScopeId.get(scope.id) ?? [])].sort(
+              (left, right) =>
+                this.compareNodesByTopologyOrderThenId(left, right),
+            );
+            const slotNodes = new Map<string, string[]>();
+
+            for (const node of scopedNodes) {
+              const slotKey = node.hints?.topology?.slotKey;
+              /* istanbul ignore next -- scopedNodes are pre-filtered to include slot keys */
+              if (!slotKey) {
+                continue;
+              }
+
+              const nodeIds = slotNodes.get(slotKey) ?? [];
+              nodeIds.push(node.id);
+              slotNodes.set(slotKey, nodeIds);
+
+              const slotOrder =
+                typeof node.hints?.topology?.slotOrder === 'number'
+                  ? node.hints.topology.slotOrder
+                  : Number.MAX_SAFE_INTEGER;
+              const existingOrder =
+                slotOrderByKey.get(slotKey) ?? Number.MAX_SAFE_INTEGER;
+              slotOrderByKey.set(slotKey, Math.min(existingOrder, slotOrder));
+            }
+
+            if (slotNodes.size > 0) {
+              nodeIdsByScopeIdAndSlotKey.set(scope.id, slotNodes);
+            }
+          }
+
+          const slots = [...slotOrderByKey.entries()]
+            .sort((left, right) => {
+              if (left[1] !== right[1]) {
+                return left[1] - right[1];
+              }
+              return left[0].localeCompare(right[0]);
+            })
+            .map(([slotKey]) => slotKey);
+
+          if (slots.length === 0) {
+            return undefined;
+          }
+
+          return {
+            groupId: `${laneGroup.groupId}:content:${scopeSlotKey}`,
+            scopes: alignedScopes,
+            slots,
+            nodeIdsByScopeIdAndSlotKey,
+          };
+        }),
+      )
+      .filter((group): group is SymmetricContentGroup => !!group);
+  }
+
   private compareScopesByOrderThenId(
     left: TgTopologyScope,
     right: TgTopologyScope,
@@ -580,6 +821,25 @@ ${legendRows}
     }
 
     return left.id.localeCompare(right.id);
+  }
+
+  private compareNodesByTopologyOrderThenId(
+    left: TgNode,
+    right: TgNode,
+  ): number {
+    const leftOrder =
+      typeof left.hints?.topology?.order === 'number'
+        ? left.hints.topology.order
+        : Number.MAX_SAFE_INTEGER;
+    const rightOrder =
+      typeof right.hints?.topology?.order === 'number'
+        ? right.hints.topology.order
+        : Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return String(left.id).localeCompare(String(right.id));
   }
 
   private toDotScopeAttributes(
@@ -604,6 +864,13 @@ ${legendRows}
     slotKey: string,
   ): string {
     return `${this.toTopologyScopeNodeId(laneScopeId)}__slot__${slotKey}`;
+  }
+
+  private toTopologyContentSlotAnchorNodeId(
+    scopeId: string,
+    slotKey: string,
+  ): string {
+    return `${this.toTopologyScopeNodeId(scopeId)}__content_slot__${slotKey}`;
   }
 
   private isTopologyScope(value: unknown): value is TgTopologyScope {
@@ -660,6 +927,23 @@ ${legendRows}
     return {
       ...defaultLayoutOptions,
       ...(input ?? {}),
+    };
+  }
+
+  /* istanbul ignore next -- exercised via render output, but branch attribution is unstable */
+  private resolveRuntimeGraphOptions(
+    hasGlobalRankConstraints: boolean,
+  ): DotGraphAttributes {
+    if (
+      this.options.graph?.newrank !== undefined ||
+      !hasGlobalRankConstraints
+    ) {
+      return this.options.graph ?? {};
+    }
+
+    return {
+      ...(this.options.graph ?? {}),
+      newrank: true,
     };
   }
 }

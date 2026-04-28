@@ -678,6 +678,135 @@ describe('DotRenderer.render', () => {
     expect(output).toContain('"cluster_scope_lane_b__slot__shared"');
   });
 
+  it('shoud align scoped content slots inside symmetric topology lanes', () => {
+    const appA = asNodeId('node-app-a');
+    const dataA = asNodeId('node-data-a');
+    const appB = asNodeId('node-app-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            vpc: {
+              id: 'vpc',
+              order: 1,
+            },
+            laneA: {
+              id: 'lane_a',
+              parentId: 'vpc',
+              order: 1,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'a',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              parentId: 'vpc',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'b',
+              },
+            },
+            privateA: {
+              id: 'private_a',
+              parentId: 'lane_a',
+              order: 1,
+              layout: {
+                slotKey: 'private',
+              },
+            },
+            privateB: {
+              id: 'private_b',
+              parentId: 'lane_b',
+              order: 1,
+              layout: {
+                slotKey: 'private',
+              },
+            },
+          },
+        },
+      },
+      nodes: {
+        [appA]: {
+          id: appA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.a',
+            resource: 'aws_instance',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'private_a',
+              slotKey: 'application',
+              slotOrder: 1,
+            },
+          },
+        },
+        [dataA]: {
+          id: dataA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_db_instance.a',
+            resource: 'aws_db_instance',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'private_a',
+              slotKey: 'data',
+              slotOrder: 2,
+            },
+          },
+        },
+        [appB]: {
+          id: appB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.b',
+            resource: 'aws_instance',
+            name: 'b',
+          },
+          hints: {
+            topology: {
+              scopeId: 'private_b',
+              slotKey: 'application',
+              slotOrder: 1,
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain(
+      '"cluster_scope_private_a__content_slot__application"',
+    );
+    expect(output).toContain('"cluster_scope_private_b__content_slot__data"');
+    expect(output).toContain(
+      '{ rank = same; "cluster_scope_private_a__content_slot__application" "cluster_scope_private_b__content_slot__application" }',
+    );
+    expect(output).toContain(
+      '{ rank = same; "cluster_scope_private_a__content_slot__data" "cluster_scope_private_b__content_slot__data" }',
+    );
+    expect(output).toContain(
+      `{ rank = same; "cluster_scope_private_a__content_slot__application" "${String(appA)}" }`,
+    );
+    expect(output).toContain(
+      `{ rank = same; "cluster_scope_private_b__content_slot__application" "${String(appB)}" }`,
+    );
+  });
+
   it('shoud order topology scopes by order then id', () => {
     const nodeAlpha = asNodeId('node-alpha');
     const nodeBeta = asNodeId('node-beta');
@@ -2139,25 +2268,17 @@ describe('DotRenderer symmetric topology helpers', () => {
   it('shoud return the original output when a symmetric rank block has fewer than two lanes', () => {
     const renderer = new DotRenderer();
     const subject = renderer as unknown as {
-      applySymmetricTopologyRanks(output: string, tg: TgGraph): string;
-      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): unknown[];
+      applySymmetricTopologyRanks(output: string, groups: unknown[]): string;
     };
 
-    subject.resolveSymmetricLaneGroups = () => [
+    const output = subject.applySymmetricTopologyRanks('digraph G {}', [
       {
         groupId: 'g1',
         lanes: [{ id: 'lane-a' }],
         slots: ['slot-a'],
         slotScopesByLaneId: new Map<string, Map<string, TgTopologyScope>>(),
       },
-    ];
-
-    const output = subject.applySymmetricTopologyRanks('digraph G {}', {
-      schemaVersion: TG_SCHEMA_VERSION,
-      description: {},
-      nodes: {},
-      edges: [],
-    });
+    ]);
 
     expect(output).toBe('digraph G {}');
   });
@@ -2165,25 +2286,17 @@ describe('DotRenderer symmetric topology helpers', () => {
   it('shoud return the original output when symmetric ranks cannot find a closing brace', () => {
     const renderer = new DotRenderer();
     const subject = renderer as unknown as {
-      applySymmetricTopologyRanks(output: string, tg: TgGraph): string;
-      resolveSymmetricLaneGroups(scopes: TgTopologyScope[]): unknown[];
+      applySymmetricTopologyRanks(output: string, groups: unknown[]): string;
     };
 
-    subject.resolveSymmetricLaneGroups = () => [
+    const output = subject.applySymmetricTopologyRanks('digraph G {', [
       {
         groupId: 'g1',
         lanes: [{ id: 'lane-a' }, { id: 'lane-b' }],
         slots: ['slot-a'],
         slotScopesByLaneId: new Map<string, Map<string, TgTopologyScope>>(),
       },
-    ];
-
-    const output = subject.applySymmetricTopologyRanks('digraph G {', {
-      schemaVersion: TG_SCHEMA_VERSION,
-      description: {},
-      nodes: {},
-      edges: [],
-    });
+    ]);
 
     expect(output).toBe('digraph G {');
   });
@@ -2424,6 +2537,495 @@ describe('DotRenderer symmetric topology helpers', () => {
     expect(groups[0]?.slotScopesByLaneId.get('lane_a')?.get('shared')?.id).toBe(
       'slot_first',
     );
+  });
+
+  it('shoud resolve symmetric content groups with deterministic slot ordering', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      resolveSymmetricContentGroups(
+        tg: TgGraph,
+        scopes: TgTopologyScope[],
+      ): Array<{
+        groupId: string;
+        slots: string[];
+        nodeIdsByScopeIdAndSlotKey: Map<string, Map<string, string[]>>;
+      }>;
+    };
+
+    const nodeAppA = asNodeId('node-app-a');
+    const nodeDataA = asNodeId('node-data-a');
+    const nodeAppB = asNodeId('node-app-b');
+    const scopes: TgTopologyScope[] = [
+      {
+        id: 'lane_a',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a' },
+      },
+      {
+        id: 'lane_b',
+        order: 2,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'b' },
+      },
+      {
+        id: 'subnet_a',
+        parentId: 'lane_a',
+        order: 1,
+        layout: { slotKey: 'private' },
+      },
+      {
+        id: 'subnet_b',
+        parentId: 'lane_b',
+        order: 1,
+        layout: { slotKey: 'private' },
+      },
+    ];
+
+    const groups = subject.resolveSymmetricContentGroups(
+      {
+        schemaVersion: TG_SCHEMA_VERSION,
+        description: {},
+        hints: {
+          topology: {
+            scopes: Object.fromEntries(
+              scopes.map((scope) => [scope.id, scope]),
+            ),
+          },
+        },
+        nodes: {
+          [nodeDataA]: {
+            id: nodeDataA,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_db_instance.a',
+              resource: 'aws_db_instance',
+              name: 'a',
+            },
+            hints: {
+              topology: {
+                scopeId: 'subnet_a',
+                slotKey: 'data',
+              },
+            },
+          },
+          [nodeAppA]: {
+            id: nodeAppA,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_instance.a',
+              resource: 'aws_instance',
+              name: 'a',
+            },
+            hints: {
+              topology: {
+                scopeId: 'subnet_a',
+                slotKey: 'application',
+                slotOrder: 10,
+              },
+            },
+          },
+          [nodeAppB]: {
+            id: nodeAppB,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_instance.b',
+              resource: 'aws_instance',
+              name: 'b',
+            },
+            hints: {
+              topology: {
+                scopeId: 'subnet_b',
+                slotKey: 'application',
+                slotOrder: 10,
+              },
+            },
+          },
+        },
+        edges: [],
+      },
+      scopes,
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.groupId).toBe('group-a:content:private');
+    expect(groups[0]?.slots).toStrictEqual(['application', 'data']);
+    expect(
+      groups[0]?.nodeIdsByScopeIdAndSlotKey.get('subnet_a')?.get('application'),
+    ).toStrictEqual([nodeAppA]);
+    expect(
+      groups[0]?.nodeIdsByScopeIdAndSlotKey.get('subnet_b')?.get('data'),
+    ).toBeUndefined();
+  });
+
+  it('shoud ignore symmetric content alignment when scoped nodes do not define slot keys', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      resolveSymmetricContentGroups(
+        tg: TgGraph,
+        scopes: TgTopologyScope[],
+      ): unknown[];
+    };
+
+    const nodeId = asNodeId('node-a');
+    const scopes: TgTopologyScope[] = [
+      {
+        id: 'lane_a',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a' },
+      },
+      {
+        id: 'lane_b',
+        order: 2,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'b' },
+      },
+      {
+        id: 'subnet_a',
+        parentId: 'lane_a',
+        order: 1,
+        layout: { slotKey: 'private' },
+      },
+      {
+        id: 'subnet_b',
+        parentId: 'lane_b',
+        order: 1,
+        layout: { slotKey: 'private' },
+      },
+    ];
+
+    expect(
+      subject.resolveSymmetricContentGroups(
+        {
+          schemaVersion: TG_SCHEMA_VERSION,
+          description: {},
+          nodes: {
+            [nodeId]: {
+              id: nodeId,
+              terraform: {
+                kind: 'resource',
+                address: 'aws_instance.a',
+                resource: 'aws_instance',
+                name: 'a',
+              },
+              hints: {
+                topology: {
+                  scopeId: 'subnet_a',
+                },
+              },
+            },
+          },
+          edges: [],
+        },
+        scopes,
+      ),
+    ).toStrictEqual([]);
+  });
+
+  it('shoud omit cross-scope content rank blocks when only one aligned scope is present', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      applySymmetricContentRanks(
+        output: string,
+        groups: Array<{
+          groupId: string;
+          scopes: TgTopologyScope[];
+          slots: string[];
+          nodeIdsByScopeIdAndSlotKey: Map<string, Map<string, string[]>>;
+        }>,
+      ): string;
+    };
+
+    expect(
+      subject.applySymmetricContentRanks('digraph G {}', [
+        {
+          groupId: 'group-a:content:private',
+          scopes: [{ id: 'scope-a' }],
+          slots: ['application'],
+          nodeIdsByScopeIdAndSlotKey: new Map([
+            ['scope-a', new Map([['application', ['node-a']]])],
+          ]),
+        },
+      ]),
+    ).toContain(
+      '{ rank = same; "cluster_scope_scope-a__content_slot__application" "node-a" }',
+    );
+  });
+
+  it('shoud return the original output when symmetric content ranks cannot find a closing brace', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      applySymmetricContentRanks(
+        output: string,
+        groups: Array<{
+          groupId: string;
+          scopes: TgTopologyScope[];
+          slots: string[];
+          nodeIdsByScopeIdAndSlotKey: Map<string, Map<string, string[]>>;
+        }>,
+      ): string;
+    };
+
+    expect(
+      subject.applySymmetricContentRanks('digraph G {', [
+        {
+          groupId: 'group-a:content:private',
+          scopes: [{ id: 'scope-a' }, { id: 'scope-b' }],
+          slots: ['application'],
+          nodeIdsByScopeIdAndSlotKey: new Map(),
+        },
+      ]),
+    ).toBe('digraph G {');
+  });
+
+  it('shoud enable newrank when emitting global topology alignment constraints', () => {
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            parent: { id: 'parent', order: 1 },
+            laneA: {
+              id: 'lane_a',
+              parentId: 'parent',
+              order: 1,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'a',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              parentId: 'parent',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'b',
+              },
+            },
+            childA: {
+              id: 'child_a',
+              parentId: 'lane_a',
+              order: 1,
+              layout: {
+                slotKey: 'shared',
+              },
+            },
+            childB: {
+              id: 'child_b',
+              parentId: 'lane_b',
+              order: 1,
+              layout: {
+                slotKey: 'shared',
+              },
+            },
+          },
+        },
+      },
+      nodes: {},
+      edges: [],
+    };
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('newrank=true');
+  });
+
+  it('shoud preserve an explicit newrank override', () => {
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            parent: { id: 'parent', order: 1 },
+            laneA: {
+              id: 'lane_a',
+              parentId: 'parent',
+              order: 1,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'a',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              parentId: 'parent',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'b',
+              },
+            },
+            childA: {
+              id: 'child_a',
+              parentId: 'lane_a',
+              order: 1,
+              layout: {
+                slotKey: 'shared',
+              },
+            },
+            childB: {
+              id: 'child_b',
+              parentId: 'lane_b',
+              order: 1,
+              layout: {
+                slotKey: 'shared',
+              },
+            },
+          },
+        },
+      },
+      nodes: {},
+      edges: [],
+    };
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer({
+      graph: {
+        newrank: false,
+      },
+    });
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('newrank=false');
+  });
+
+  it('shoud sort symmetric content slot keys alphabetically when slot orders tie', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      resolveSymmetricContentGroups(
+        tg: TgGraph,
+        scopes: TgTopologyScope[],
+      ): Array<{
+        slots: string[];
+      }>;
+    };
+
+    const nodeAlpha = asNodeId('node-alpha');
+    const nodeZeta = asNodeId('node-zeta');
+    const scopes: TgTopologyScope[] = [
+      {
+        id: 'lane_a',
+        order: 1,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'a' },
+      },
+      {
+        id: 'lane_b',
+        order: 2,
+        layout: { mode: 'symmetric', groupId: 'group-a', laneKey: 'b' },
+      },
+      {
+        id: 'subnet_a',
+        parentId: 'lane_a',
+        order: 1,
+        layout: { slotKey: 'private' },
+      },
+      {
+        id: 'subnet_b',
+        parentId: 'lane_b',
+        order: 1,
+        layout: { slotKey: 'private' },
+      },
+    ];
+
+    const groups = subject.resolveSymmetricContentGroups(
+      {
+        schemaVersion: TG_SCHEMA_VERSION,
+        description: {},
+        nodes: {
+          [nodeZeta]: {
+            id: nodeZeta,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_instance.zeta',
+              resource: 'aws_instance',
+              name: 'zeta',
+            },
+            hints: {
+              topology: {
+                scopeId: 'subnet_a',
+                slotKey: 'zeta',
+                slotOrder: 10,
+              },
+            },
+          },
+          [nodeAlpha]: {
+            id: nodeAlpha,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_instance.alpha',
+              resource: 'aws_instance',
+              name: 'alpha',
+            },
+            hints: {
+              topology: {
+                scopeId: 'subnet_b',
+                slotKey: 'alpha',
+                slotOrder: 10,
+              },
+            },
+          },
+        },
+        edges: [],
+      },
+      scopes,
+    );
+
+    expect(groups[0]?.slots).toStrictEqual(['alpha', 'zeta']);
+  });
+
+  it('shoud compare scoped content nodes by topology order then id', () => {
+    const renderer = new DotRenderer();
+    const subject = renderer as unknown as {
+      compareNodesByTopologyOrderThenId(
+        left: TgGraph['nodes'][string],
+        right: TgGraph['nodes'][string],
+      ): number;
+    };
+
+    expect(
+      subject.compareNodesByTopologyOrderThenId(
+        {
+          id: asNodeId('node-b'),
+          hints: {
+            topology: {
+              order: 1,
+            },
+          },
+        },
+        {
+          id: asNodeId('node-a'),
+          hints: {
+            topology: {
+              order: 1,
+            },
+          },
+        },
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      subject.compareNodesByTopologyOrderThenId(
+        {
+          id: asNodeId('node-a'),
+          hints: {
+            topology: {
+              order: 1,
+            },
+          },
+        },
+        {
+          id: asNodeId('node-b'),
+          hints: {
+            topology: {
+              order: 2,
+            },
+          },
+        },
+      ),
+    ).toBeLessThan(0);
   });
 });
 
