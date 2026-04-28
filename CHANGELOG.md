@@ -1,3 +1,15 @@
+# [1.0.0-rc.17](https://github.com/terra-graph/core/compare/v1.0.0-rc.16...v1.0.0-rc.17) (2026-04-28)
+
+
+### Bug Fixes
+
+* merge conflict ([1a9b458](https://github.com/terra-graph/core/commit/1a9b45814980994e8c5a1021a679711fd04788b4))
+
+
+### Features
+
+* better node image and label layout ([b2099f4](https://github.com/terra-graph/core/commit/b2099f475ba551d9548ea99a0dae8f97253d4043))
+
 # [1.0.0-rc.16](https://github.com/terra-graph/core/compare/v1.0.0-rc.15...v1.0.0-rc.16) (2026-04-28)
 
 
