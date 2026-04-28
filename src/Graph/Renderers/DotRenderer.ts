@@ -126,7 +126,7 @@ export class DotRenderer implements Renderer<DotAdapter> {
 
   private toDotNodeAttributes(node: TgNode): Record<string, unknown> {
     const attributes: Record<string, unknown> = {
-      label: this.buildNodeLabel(node),
+      label: this.buildDefaultNodeLabel(node),
       ...(node.adapter?.[DotAdapter.name] ?? {}),
     };
 
@@ -255,7 +255,7 @@ ${legendRows}
     return this.unescapeHtmlLabelQuotes(merged);
   }
 
-  private buildNodeLabel(node: TgNode): string {
+  private buildDefaultNodeLabel(node: TgNode): string {
     return new TgNodeLabel(node).getLabel();
   }
 
