@@ -1,3 +1,10 @@
+# [1.0.0-rc.16](https://github.com/terra-graph/core/compare/v1.0.0-rc.15...v1.0.0-rc.16) (2026-04-28)
+
+
+### Features
+
+* use hints for influencing node rendering layout ([0deab63](https://github.com/terra-graph/core/commit/0deab63dc6c34af94d42058eac906a0f3ddf055a))
+
 # [1.0.0-rc.15](https://github.com/terra-graph/core/compare/v1.0.0-rc.14...v1.0.0-rc.15) (2026-04-27)
 
 
