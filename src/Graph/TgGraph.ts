@@ -88,6 +88,8 @@ export type TgNodeTopologyHints = {
   scopeId?: string;
   lane?: string;
   order?: number;
+  slotKey?: string;
+  slotOrder?: number;
 };
 
 export type TgNodeCardinalityHints = {

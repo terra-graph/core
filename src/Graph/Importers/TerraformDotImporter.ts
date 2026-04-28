@@ -41,7 +41,7 @@ export class TerraformDotImporter implements Importer {
         terraform: nodeDetails,
       };
 
-      const [text1, text2] = new TgNodeLabel(node).getResolvedElements();
+      const [text2, text1] = new TgNodeLabel(node).getResolvedElements();
       node.hints = {
         ...(node.hints ?? {}),
         layout: {
