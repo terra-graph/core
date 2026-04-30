@@ -564,6 +564,102 @@ describe('DotRenderer.render', () => {
     expect(publicRankIndex).toBeLessThan(privateRankIndex);
   });
 
+  it('shoud ignore scope direction hints for symmetric topology lanes', () => {
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            vpc: {
+              id: 'vpc',
+              label: 'VPC',
+              order: 1,
+              layout: {
+                direction: 'horizontal',
+              },
+            },
+            laneA: {
+              id: 'lane_a',
+              label: 'AZ A',
+              parentId: 'vpc',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'vpc:az-lanes',
+                laneKey: 'az-a',
+                direction: 'vertical',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              label: 'AZ B',
+              parentId: 'vpc',
+              order: 3,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'vpc:az-lanes',
+                laneKey: 'az-b',
+                direction: 'vertical',
+              },
+            },
+            laneAPublic: {
+              id: 'lane_a_public',
+              label: 'public-a',
+              parentId: 'lane_a',
+              order: 1,
+              layout: {
+                slotKey: 'public',
+              },
+            },
+            laneAPrivate: {
+              id: 'lane_a_private',
+              label: 'private-a',
+              parentId: 'lane_a',
+              order: 2,
+              layout: {
+                slotKey: 'private',
+              },
+            },
+            laneBPublic: {
+              id: 'lane_b_public',
+              label: 'public-b',
+              parentId: 'lane_b',
+              order: 1,
+              layout: {
+                slotKey: 'public',
+              },
+            },
+          },
+        },
+      },
+      nodes: {},
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('"cluster_scope_lane_b__slot__private"');
+    expect(output).toContain(
+      '{ rank = same; "cluster_scope_lane_a_public__anchor" "cluster_scope_lane_b_public__anchor" }',
+    );
+    expect(output).toContain(
+      '{ rank = same; "cluster_scope_lane_a_private__anchor" "cluster_scope_lane_b__slot__private" }',
+    );
+    expect(output).toContain('cluster_scope_lane_a__anchor');
+    expect(output).toContain('cluster_scope_lane_b__anchor');
+    expect(output).toContain(
+      'cluster_scope_lane_a__anchor -> cluster_scope_lane_a_public__anchor [style=invis,weight=110]',
+    );
+    expect(output).toContain(
+      'cluster_scope_lane_b__anchor -> cluster_scope_lane_b_public__anchor [style=invis,weight=110]',
+    );
+    expect(output).not.toContain('tg.layout.lane-order:');
+    expect(output).not.toContain('constraint=false');
+  });
+
   it('shoud degrade to natural layout when symmetric lane hints are incomplete', () => {
     const tg: TgGraph = {
       schemaVersion: TG_SCHEMA_VERSION,
@@ -792,18 +888,218 @@ describe('DotRenderer.render', () => {
     expect(output).toContain(
       '"cluster_scope_private_a__content_slot__application"',
     );
-    expect(output).toContain('"cluster_scope_private_b__content_slot__data"');
-    expect(output).toContain(
-      '{ rank = same; "cluster_scope_private_a__content_slot__application" "cluster_scope_private_b__content_slot__application" }',
-    );
-    expect(output).toContain(
-      '{ rank = same; "cluster_scope_private_a__content_slot__data" "cluster_scope_private_b__content_slot__data" }',
-    );
+    expect(output).toContain('cluster_scope_private_b__content_slot__data');
     expect(output).toContain(
       `{ rank = same; "cluster_scope_private_a__content_slot__application" "${String(appA)}" }`,
     );
     expect(output).toContain(
+      `{ rank = same; "cluster_scope_private_a__content_slot__data" "${String(dataA)}" }`,
+    );
+    expect(output).toContain(
       `{ rank = same; "cluster_scope_private_b__content_slot__application" "${String(appB)}" }`,
+    );
+    expect(output).not.toContain(
+      '{ rank = same; "cluster_scope_private_a__content_slot__application" "cluster_scope_private_b__content_slot__application" }',
+    );
+    expect(output).not.toContain(
+      '{ rank = same; "cluster_scope_private_a__content_slot__data" "cluster_scope_private_b__content_slot__data" }',
+    );
+  });
+
+  it('shoud ignore scope direction hints for symmetric content alignment', () => {
+    const appA = asNodeId('node-app-a');
+    const dataA = asNodeId('node-data-a');
+    const appB = asNodeId('node-app-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            vpc: {
+              id: 'vpc',
+              order: 1,
+              layout: {
+                direction: 'horizontal',
+              },
+            },
+            laneA: {
+              id: 'lane_a',
+              parentId: 'vpc',
+              order: 1,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'a',
+                direction: 'vertical',
+              },
+            },
+            laneB: {
+              id: 'lane_b',
+              parentId: 'vpc',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'lanes',
+                laneKey: 'b',
+                direction: 'vertical',
+              },
+            },
+            privateA: {
+              id: 'private_a',
+              parentId: 'lane_a',
+              order: 1,
+              layout: {
+                slotKey: 'private',
+              },
+            },
+            privateB: {
+              id: 'private_b',
+              parentId: 'lane_b',
+              order: 1,
+              layout: {
+                slotKey: 'private',
+              },
+            },
+          },
+        },
+      },
+      nodes: {
+        [appA]: {
+          id: appA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.a',
+            resource: 'aws_instance',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'private_a',
+              slotKey: 'application',
+              slotOrder: 1,
+            },
+          },
+        },
+        [dataA]: {
+          id: dataA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_db_instance.a',
+            resource: 'aws_db_instance',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'private_a',
+              slotKey: 'data',
+              slotOrder: 2,
+            },
+          },
+        },
+        [appB]: {
+          id: appB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.b',
+            resource: 'aws_instance',
+            name: 'b',
+          },
+          hints: {
+            topology: {
+              scopeId: 'private_b',
+              slotKey: 'application',
+              slotOrder: 1,
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain(
+      `{ rank = same; "cluster_scope_private_a__content_slot__application" "${String(appA)}" }`,
+    );
+    expect(output).toContain(
+      `{ rank = same; "cluster_scope_private_a__content_slot__data" "${String(dataA)}" }`,
+    );
+    expect(output).toContain(
+      `{ rank = same; "cluster_scope_private_b__content_slot__application" "${String(appB)}" }`,
+    );
+    expect(output).not.toContain(
+      '{ rank = same; "cluster_scope_private_a__content_slot__application" "cluster_scope_private_a__content_slot__data" }',
+    );
+    expect(output).not.toContain('content-scope-order:');
+    expect(output).not.toContain('constraint=false');
+  });
+
+  it('shoud ignore scope direction when emitting cluster dot attributes', () => {
+    const scopedNode = asNodeId('scoped-node');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            vpc: {
+              id: 'vpc',
+              label: 'VPC',
+              order: 1,
+              layout: {
+                direction: 'horizontal',
+              },
+            },
+            subnet: {
+              id: 'subnet',
+              label: 'Subnet',
+              parentId: 'vpc',
+              order: 2,
+              layout: {
+                direction: 'vertical',
+              },
+            },
+          },
+        },
+      },
+      nodes: {
+        [scopedNode]: {
+          id: scopedNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.scoped',
+            resource: 'aws_instance',
+            name: 'scoped',
+          },
+          hints: {
+            topology: {
+              scopeId: 'subnet',
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer({
+      graph: {
+        rankdir: 'RL',
+      },
+    });
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain('rankdir=RL');
+    expect(output).not.toMatch(
+      /subgraph cluster_scope_vpc \{[\s\S]*?rankdir=LR[\s\S]*?subgraph cluster_scope_subnet \{/,
+    );
+    expect(output).not.toMatch(
+      /subgraph cluster_scope_subnet \{[\s\S]*?rankdir=TB[\s\S]*?"scoped-node"/,
     );
   });
 
@@ -1656,9 +1952,9 @@ describe('DotRenderer.render', () => {
 
     const output = toTextContent(renderer.render(adapter));
 
-    expect(output).toContain('rankdir=LR');
-    expect(output).toContain('ranksep=2.5');
-    expect(output).toContain('nodesep=0.6');
+    expect(output).toContain('rankdir=TB');
+    expect(output).toContain('ranksep=0.6');
+    expect(output).toContain('nodesep=2.5');
     expect(output).toContain('pad=1');
   });
 
@@ -3132,9 +3428,9 @@ describe('DotRenderer.resolveGraphOptions (defaults)', () => {
 
     const resolved = subject.resolveGraphOptions();
 
-    expect(resolved.rankdir).toBe('LR');
-    expect(resolved.ranksep).toBe(2.5);
-    expect(resolved.nodesep).toBe(0.6);
+    expect(resolved.rankdir).toBe('TB');
+    expect(resolved.ranksep).toBe(0.6);
+    expect(resolved.nodesep).toBe(2.5);
     expect(resolved.pad).toBe(1);
   });
 });

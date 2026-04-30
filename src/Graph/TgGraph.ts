@@ -100,6 +100,7 @@ export type TgNodeCardinalityHints = {
 
 export type TgTopologyScopeLayout = {
   mode?: 'natural' | 'symmetric';
+  direction?: 'horizontal' | 'vertical';
   groupId?: string;
   laneKey?: string;
   slotKey?: string;

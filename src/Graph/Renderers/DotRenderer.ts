@@ -43,7 +43,7 @@ type DotLayoutOptions = {
 
 const defaultGraphOptions: DotRendererOptions = {
   graph: {
-    rankdir: 'LR',
+    rankdir: 'TB',
     ranksep: 2.5,
     nodesep: 0.6,
     pad: 1,
@@ -292,6 +292,10 @@ ${legendRows}
     return new TgNodeLabel(node).getLabel();
   }
 
+  private buildNodeLabel(node: TgNode): string {
+    return this.buildDefaultNodeLabel(node);
+  }
+
   private applyCardinalitySuffix(
     attributes: Record<string, unknown>,
     node: TgNode,
@@ -349,8 +353,12 @@ ${legendRows}
       const scopeNodeId = this.toTopologyScopeNodeId(scope.id);
       graph.setNode(scopeNodeId, this.toDotScopeAttributes(scope));
 
-      // Ensure scopes are always rendered as DOT subgraphs (clusters), even when
-      // they do not yet contain scoped resource nodes.
+      // Non-root scopes need an anchor so nested cluster layout constraints have
+      // a stable target node to pull against.
+      if (!scope.parentId) {
+        continue;
+      }
+
       const anchorNodeId = this.toTopologyScopeAnchorNodeId(scope.id);
       graph.setNode(anchorNodeId, {
         label: '',
@@ -387,6 +395,8 @@ ${legendRows}
     groups: SymmetricLaneGroup[],
   ) {
     for (const group of groups) {
+      const slotAnchorIdsByLaneId = new Map<string, Map<string, string>>();
+
       for (const lane of group.lanes) {
         const laneSlotScopes =
           group.slotScopesByLaneId.get(lane.id) ?? new Map();
@@ -413,6 +423,15 @@ ${legendRows}
           );
           return placeholderNodeId;
         });
+        slotAnchorIdsByLaneId.set(
+          lane.id,
+          new Map(
+            group.slots.map((slotKey, index) => [
+              slotKey,
+              slotAnchorIds[index] ?? '',
+            ]),
+          ),
+        );
 
         for (let index = 1; index < slotAnchorIds.length; index += 1) {
           graph.setEdge(
@@ -424,6 +443,20 @@ ${legendRows}
             {
               style: 'invis',
               weight: 100,
+            },
+          );
+        }
+
+        if (slotAnchorIds.length > 0) {
+          graph.setEdge(
+            {
+              v: this.toTopologyScopeAnchorNodeId(lane.id),
+              w: slotAnchorIds[0] as unknown as string,
+              name: `tg.layout.scope-slot-anchor:${group.groupId}:${lane.id}`,
+            },
+            {
+              style: 'invis',
+              weight: 110,
             },
           );
         }
@@ -572,20 +605,8 @@ ${legendRows}
       .flatMap((group) => {
         const blocks: string[] = [];
 
-        for (const slotKey of group.slots) {
-          const anchorNodeIds = group.scopes.map((scope) =>
-            this.toTopologyContentSlotAnchorNodeId(scope.id, slotKey),
-          );
-
-          if (anchorNodeIds.length > 1) {
-            blocks.push(
-              `  { rank = same; ${anchorNodeIds
-                .map((nodeId) => this.quoteDotId(nodeId))
-                .join(' ')} }`,
-            );
-          }
-
-          for (const scope of group.scopes) {
+        for (const scope of group.scopes) {
+          for (const slotKey of group.slots) {
             const nodeIds =
               group.nodeIdsByScopeIdAndSlotKey.get(scope.id)?.get(slotKey) ??
               [];
