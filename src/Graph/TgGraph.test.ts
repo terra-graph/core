@@ -1,4 +1,5 @@
 import {
+  DefaultEdgeSemanticRoles,
   EdgeId,
   NodeId,
   TG_SCHEMA_VERSION,
@@ -9,6 +10,11 @@ import {
   parseTgNodeId,
   tgNodeIdFrom,
 } from './TgGraph.js';
+
+const customSemantic = (semantic: string) => ({
+  semantic,
+  role: DefaultEdgeSemanticRoles.Primary,
+});
 
 describe('TgGraph.edgeIdFrom', () => {
   it('should create expected id without suffix', () => {
@@ -82,12 +88,14 @@ describe('TgGraph.TgEdgeAttributes', () => {
           id: asEdgeId('edge-a-b'),
           from: nodeA,
           to: nodeB,
-          attributes: { directionSemantic: 'custom.semantic' },
+          attributes: {
+            hints: { semantic: customSemantic('custom.semantic') },
+          },
         },
       ],
     };
 
-    expect(graph.edges[0].attributes?.directionSemantic).toBe(
+    expect(graph.edges[0].attributes?.hints?.semantic?.semantic).toBe(
       'custom.semantic',
     );
   });

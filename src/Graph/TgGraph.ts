@@ -33,12 +33,29 @@ export type TgEdgeRenderHints = {
   name: string;
 };
 
+export type TgEdgeSemanticHint = {
+  semantic: string;
+  role: DefaultEdgeSemanticRole;
+};
+
+export type TgEdgeHints = {
+  semantic?: TgEdgeSemanticHint;
+};
+
 export interface TgEdgeAttributes extends Record<string, unknown> {
-  directionSemantic?: string;
+  hints?: TgEdgeHints;
   legend?: TgEdgeLegendAttribute;
   renderHints?: TgEdgeRenderHints;
   adapter?: Record<string, Record<string, unknown>>;
 }
+
+export const DefaultEdgeSemanticRoles = {
+  Primary: 'primary',
+  Supporting: 'supporting',
+} as const;
+
+export type DefaultEdgeSemanticRole =
+  (typeof DefaultEdgeSemanticRoles)[keyof typeof DefaultEdgeSemanticRoles];
 
 export type TgEdge = {
   id: EdgeId;
@@ -127,6 +144,7 @@ export type TgNodeLayoutHints = {
   image?: string;
   text1?: string;
   text2?: string;
+  flowOrder?: number;
 };
 
 export type TgNodeHints = {

@@ -2,6 +2,7 @@ import { DirectedGraph } from 'graphology';
 import { DotAdapter } from '../Adapters/DotAdapter.js';
 import { RenderArtifact } from '../Renderer.js';
 import {
+  DefaultEdgeSemanticRoles,
   TG_SCHEMA_VERSION,
   TgGraph,
   TgNode,
@@ -59,12 +60,18 @@ describe('DotRenderer.render', () => {
           from: nodeA,
           to: nodeB,
           attributes: {
+            hints: {
+              semantic: {
+                semantic: 'authorizes',
+                role: DefaultEdgeSemanticRoles.Supporting,
+              },
+            },
             legend: {
               title: 'Bucket Relation',
               colour: '#c20202',
             },
             adapter: {
-              [DotAdapter.name]: { style: 'dashed' },
+              [DotAdapter.name]: { style: 'dashed', weight: 7 },
             },
           },
         },
@@ -83,6 +90,8 @@ describe('DotRenderer.render', () => {
     expect(output).toContain('label="aws_s3_bucket.a"');
     expect(output).toContain('shape=box');
     expect(output).toContain('style=dashed');
+    expect(output).toContain('constraint=false');
+    expect(output).toContain('weight=7');
     expect(output).toContain('color="#c20202"');
     expect(output).toContain('subgraph "cluster_Legend"');
     expect(output).toContain('label="Bucket Relation"');
@@ -175,6 +184,35 @@ describe('DotRenderer.render', () => {
     expect(output).not.toContain(`{ rank = same; "${nodeA}" "${missing}" }`);
   });
 
+  it('shoud leave symmetric content rank output unchanged when no closing brace is present', () => {
+    const renderer = new DotRenderer() as unknown as {
+      applySymmetricContentRanks: (
+        output: string,
+        groups: Array<{
+          groupId: string;
+          scopes: TgTopologyScope[];
+          slots: string[];
+          nodeIdsByScopeIdAndSlotKey: Map<string, Map<string, string[]>>;
+        }>,
+      ) => string;
+    };
+
+    const groups = [
+      {
+        groupId: 'g1',
+        scopes: [{ id: 'scope-a' }],
+        slots: ['ingress'],
+        nodeIdsByScopeIdAndSlotKey: new Map([
+          ['scope-a', new Map([['ingress', ['node-a']]])],
+        ]),
+      },
+    ];
+
+    expect(renderer.applySymmetricContentRanks('digraph G {', groups)).toBe(
+      'digraph G {',
+    );
+  });
+
   it('shoud include graph attributes such as rankdir when provided', () => {
     const nodeA = asNodeId('node-a');
     const nodeB = asNodeId('node-b');
@@ -213,6 +251,41 @@ describe('DotRenderer.render', () => {
     const output = toTextContent(renderer.render(adapter));
 
     expect(output).toContain('rankdir=LR');
+  });
+
+  it('shoud sort unordered nodes after ordered nodes in flow-order comparisons', () => {
+    const renderer = new DotRenderer() as unknown as {
+      compareNodesByLayoutFlowOrderThenId: (
+        left: TgNode,
+        right: TgNode,
+      ) => number;
+    };
+
+    const ordered: TgNode = {
+      id: asNodeId('ordered'),
+      hints: {
+        layout: { flowOrder: 10 },
+      },
+    };
+    const unordered: TgNode = {
+      id: asNodeId('unordered'),
+    };
+    const laterOrdered: TgNode = {
+      id: asNodeId('later'),
+      hints: {
+        layout: { flowOrder: 20 },
+      },
+    };
+
+    expect(
+      renderer.compareNodesByLayoutFlowOrderThenId(ordered, unordered),
+    ).toBeLessThan(0);
+    expect(
+      renderer.compareNodesByLayoutFlowOrderThenId(unordered, ordered),
+    ).toBeGreaterThan(0);
+    expect(
+      renderer.compareNodesByLayoutFlowOrderThenId(ordered, laterOrdered),
+    ).toBeLessThan(0);
   });
 
   it('shoud apply default spacing for TB/BT rankdir', () => {
@@ -651,10 +724,10 @@ describe('DotRenderer.render', () => {
     expect(output).toContain('cluster_scope_lane_a__anchor');
     expect(output).toContain('cluster_scope_lane_b__anchor');
     expect(output).toContain(
-      'cluster_scope_lane_a__anchor -> cluster_scope_lane_a_public__anchor [style=invis,weight=110]',
+      'cluster_scope_lane_a__anchor -> cluster_scope_lane_a_public__anchor [style=invis,weight=110,minlen=0]',
     );
     expect(output).toContain(
-      'cluster_scope_lane_b__anchor -> cluster_scope_lane_b_public__anchor [style=invis,weight=110]',
+      'cluster_scope_lane_b__anchor -> cluster_scope_lane_b_public__anchor [style=invis,weight=110,minlen=0]',
     );
     expect(output).not.toContain('tg.layout.lane-order:');
     expect(output).not.toContain('constraint=false');
@@ -3410,6 +3483,331 @@ describe('DotRenderer.render (graph options)', () => {
 
     expect(output).toContain('rankdir=LR');
     expect(output).toContain('pad=4');
+  });
+});
+
+describe('DotRenderer.render (layout flow ordering)', () => {
+  it('should add invisible ordering edges within the current scope only', () => {
+    const rootFirst = asNodeId('root-first');
+    const rootLast = asNodeId('root-last');
+    const subnetFirst = asNodeId('subnet-first');
+    const subnetLast = asNodeId('subnet-last');
+    const otherScope = asNodeId('other-scope');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            subnetA: {
+              id: 'subnetA',
+              label: 'subnetA',
+            },
+            subnetB: {
+              id: 'subnetB',
+              label: 'subnetB',
+            },
+          },
+        },
+      },
+      nodes: {
+        [rootFirst]: {
+          id: rootFirst,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lb.root_first',
+            resource: 'aws_lb',
+            name: 'root_first',
+          },
+          hints: {
+            layout: {
+              flowOrder: 10,
+            },
+          },
+        },
+        [rootLast]: {
+          id: rootLast,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_ecs_service.root_last',
+            resource: 'aws_ecs_service',
+            name: 'root_last',
+          },
+          hints: {
+            layout: {
+              flowOrder: 20,
+            },
+          },
+        },
+        [subnetFirst]: {
+          id: subnetFirst,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lb.subnet_first',
+            resource: 'aws_lb',
+            name: 'subnet_first',
+          },
+          hints: {
+            layout: {
+              flowOrder: 10,
+            },
+            topology: {
+              scopeId: 'subnetA',
+            },
+          },
+        },
+        [subnetLast]: {
+          id: subnetLast,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_ecs_service.subnet_last',
+            resource: 'aws_ecs_service',
+            name: 'subnet_last',
+          },
+          hints: {
+            layout: {
+              flowOrder: 20,
+            },
+            topology: {
+              scopeId: 'subnetA',
+            },
+          },
+        },
+        [otherScope]: {
+          id: otherScope,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.other_scope',
+            resource: 'aws_iam_role',
+            name: 'other_scope',
+          },
+          hints: {
+            layout: {
+              flowOrder: 5,
+            },
+            topology: {
+              scopeId: 'subnetB',
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain(
+      `"${rootFirst}" -> "${rootLast}" [style=invis,weight=120]`,
+    );
+    expect(output).toContain(
+      `"${subnetFirst}" -> "${subnetLast}" [style=invis,weight=120]`,
+    );
+    expect(output).not.toContain(`"${subnetFirst}" -> "${otherScope}"`);
+    expect(output).not.toContain(`"${rootLast}" -> "${subnetFirst}"`);
+  });
+
+  it('should use node id as a stable tie-break when flowOrder is equal', () => {
+    const nodeB = asNodeId('node-b');
+    const nodeA = asNodeId('node-a');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [nodeB]: {
+          id: nodeB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_ecs_service.b',
+            resource: 'aws_ecs_service',
+            name: 'b',
+          },
+          hints: {
+            layout: {
+              flowOrder: 10,
+            },
+          },
+        },
+        [nodeA]: {
+          id: nodeA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lb.a',
+            resource: 'aws_lb',
+            name: 'a',
+          },
+          hints: {
+            layout: {
+              flowOrder: 10,
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain(
+      `"${nodeA}" -> "${nodeB}" [style=invis,weight=120]`,
+    );
+  });
+});
+
+describe('DotRenderer.render (content slot anchoring)', () => {
+  it('should anchor the first content slot to the scope anchor', () => {
+    const lbA = asNodeId('lb-a');
+    const appA = asNodeId('app-a');
+    const lbB = asNodeId('lb-b');
+    const appB = asNodeId('app-b');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      hints: {
+        topology: {
+          scopes: {
+            vpc: {
+              id: 'vpc',
+              label: 'vpc',
+              order: 1,
+            },
+            aza: {
+              id: 'aza',
+              parentId: 'vpc',
+              label: 'aza',
+              order: 2,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'vpc:az-lanes',
+                laneKey: 'aza',
+              },
+            },
+            subnetA: {
+              id: 'subnetA',
+              parentId: 'aza',
+              label: 'subnetA',
+              order: 3,
+              layout: {
+                slotKey: 'public',
+              },
+            },
+            azb: {
+              id: 'azb',
+              parentId: 'vpc',
+              label: 'azb',
+              order: 4,
+              layout: {
+                mode: 'symmetric',
+                groupId: 'vpc:az-lanes',
+                laneKey: 'azb',
+              },
+            },
+            subnetB: {
+              id: 'subnetB',
+              parentId: 'azb',
+              label: 'subnetB',
+              order: 5,
+              layout: {
+                slotKey: 'public',
+              },
+            },
+          },
+        },
+      },
+      nodes: {
+        [lbA]: {
+          id: lbA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lb.a',
+            resource: 'aws_lb',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'subnetA',
+              slotKey: 'ingress',
+              slotOrder: 10,
+            },
+          },
+        },
+        [appA]: {
+          id: appA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_ecs_service.a',
+            resource: 'aws_ecs_service',
+            name: 'a',
+          },
+          hints: {
+            topology: {
+              scopeId: 'subnetA',
+              slotKey: 'application',
+              slotOrder: 30,
+            },
+          },
+        },
+        [lbB]: {
+          id: lbB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lb.b',
+            resource: 'aws_lb',
+            name: 'b',
+          },
+          hints: {
+            topology: {
+              scopeId: 'subnetB',
+              slotKey: 'ingress',
+              slotOrder: 10,
+            },
+          },
+        },
+        [appB]: {
+          id: appB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_ecs_service.b',
+            resource: 'aws_ecs_service',
+            name: 'b',
+          },
+          hints: {
+            topology: {
+              scopeId: 'subnetB',
+              slotKey: 'application',
+              slotOrder: 30,
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new DotAdapter(new DirectedGraph()).withTgGraph(tg);
+    const renderer = new DotRenderer();
+
+    const output = toTextContent(renderer.render(adapter));
+
+    expect(output).toContain(
+      'cluster_scope_aza__anchor -> cluster_scope_subnetA__anchor [style=invis,weight=110,minlen=0]',
+    );
+    expect(output).toContain(
+      'cluster_scope_azb__anchor -> cluster_scope_subnetB__anchor [style=invis,weight=110,minlen=0]',
+    );
+    expect(output).toContain(
+      'cluster_scope_subnetA__anchor -> cluster_scope_subnetA__content_slot__ingress [style=invis,weight=110,minlen=0]',
+    );
+    expect(output).toContain(
+      'cluster_scope_subnetB__anchor -> cluster_scope_subnetB__content_slot__ingress [style=invis,weight=110,minlen=0]',
+    );
   });
 });
 

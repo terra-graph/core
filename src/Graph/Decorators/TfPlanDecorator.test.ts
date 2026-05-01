@@ -1,4 +1,5 @@
 import {
+  DefaultEdgeSemanticRoles,
   TG_SCHEMA_VERSION,
   TgGraph,
   asEdgeId,
@@ -15,6 +16,10 @@ import {
 } from './TfStateDecorator.js';
 
 const toResourceNodeId = (address: string) => tgNodeIdFrom('resource', address);
+const customSemantic = (semantic: string) => ({
+  semantic,
+  role: DefaultEdgeSemanticRoles.Primary,
+});
 
 const buildGraph = (addresses: string[]): TgGraph => {
   const nodes = Object.fromEntries(
@@ -227,7 +232,7 @@ describe('TfStateDecorator.decorate', () => {
     const orphanId = asNodeId('orphan');
     graph.nodes[orphanId] = { id: orphanId };
     graph.edges[0].attributes = {
-      directionSemantic: 'dependency',
+      hints: { semantic: customSemantic('dependency') },
     };
 
     const decorator = new TfStateDecorator();
@@ -249,7 +254,7 @@ describe('TfStateDecorator.decorate', () => {
 
     expect(result.nodes[orphanId]).toEqual({ id: orphanId });
     expect(result.edges[0].attributes).toEqual({
-      directionSemantic: 'dependency',
+      hints: { semantic: customSemantic('dependency') },
     });
     expect(result.edges[0].attributes).not.toBe(graph.edges[0].attributes);
   });

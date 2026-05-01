@@ -2,7 +2,13 @@ import { Graph as GraphLibGraph } from 'graphlib';
 import dot from 'graphlib-dot';
 import { DotAdapter } from '../Adapters/DotAdapter.js';
 import { RenderArtifact, Renderer } from '../Renderer.js';
-import { TgEdge, TgGraph, TgNode, type TgTopologyScope } from '../TgGraph.js';
+import {
+  DefaultEdgeSemanticRoles,
+  TgEdge,
+  TgGraph,
+  TgNode,
+  type TgTopologyScope,
+} from '../TgGraph.js';
 import { TgNodeLabel } from './TgNodeLabel.js';
 
 type DotGraphAttributes = {
@@ -93,6 +99,7 @@ export class DotRenderer implements Renderer<DotAdapter> {
       symmetricContentGroups,
     );
     this.addEdges(graph, tg);
+    this.addLayoutFlowOrderingEdges(graph, tg);
 
     let output = dot.write(graph);
     output = this.applyLegend(output, tg);
@@ -139,6 +146,48 @@ export class DotRenderer implements Renderer<DotAdapter> {
     }
   }
 
+  private addLayoutFlowOrderingEdges(graph: GraphLibGraph, tg: TgGraph) {
+    const nodesByScopeId = new Map<string, TgNode[]>();
+
+    for (const node of Object.values(tg.nodes)) {
+      if (typeof node.hints?.layout?.flowOrder !== 'number') {
+        continue;
+      }
+
+      const scopeId = node.hints?.topology?.scopeId ?? '__root__';
+      const scopedNodes = nodesByScopeId.get(scopeId) ?? [];
+      scopedNodes.push(node);
+      nodesByScopeId.set(scopeId, scopedNodes);
+    }
+
+    for (const [scopeId, scopedNodes] of nodesByScopeId.entries()) {
+      const orderedNodes = [...scopedNodes].sort((left, right) =>
+        this.compareNodesByLayoutFlowOrderThenId(left, right),
+      );
+
+      for (let index = 1; index < orderedNodes.length; index += 1) {
+        const previous = orderedNodes[index - 1];
+        const current = orderedNodes[index];
+        /* istanbul ignore next -- index bounds guarantee values when iterating */
+        if (!previous || !current) {
+          continue;
+        }
+
+        graph.setEdge(
+          {
+            v: previous.id as unknown as string,
+            w: current.id as unknown as string,
+            name: `tg.layout.flow-order:${scopeId}:${index}`,
+          },
+          {
+            style: 'invis',
+            weight: 120,
+          },
+        );
+      }
+    }
+  }
+
   private collectLegendEdges(tg: TgGraph): TgEdge[] {
     return tg.edges.filter((edge) => edge.attributes?.legend !== undefined);
   }
@@ -167,17 +216,24 @@ export class DotRenderer implements Renderer<DotAdapter> {
   }
 
   private toDotEdgeAttributes(edge: TgEdge): Record<string, unknown> {
+    const semanticRole = edge.attributes?.hints?.semantic?.role;
+    const semanticDotAttributes =
+      semanticRole === DefaultEdgeSemanticRoles.Supporting
+        ? { constraint: false, weight: 1 }
+        : {};
     const dotAdapterAttributes =
       edge.attributes?.adapter?.[DotAdapter.name] ?? {};
 
     if (edge.attributes?.legend) {
       return {
+        ...semanticDotAttributes,
         ...dotAdapterAttributes,
         color: edge.attributes.legend.colour,
       };
     }
 
     return {
+      ...semanticDotAttributes,
       ...dotAdapterAttributes,
     };
   }
@@ -428,7 +484,7 @@ ${legendRows}
           new Map(
             group.slots.map((slotKey, index) => [
               slotKey,
-              slotAnchorIds[index] ?? '',
+              slotAnchorIds[index] as string,
             ]),
           ),
         );
@@ -447,6 +503,7 @@ ${legendRows}
           );
         }
 
+        /* istanbul ignore next -- groups are filtered to contain at least one slot */
         if (slotAnchorIds.length > 0) {
           graph.setEdge(
             {
@@ -457,6 +514,7 @@ ${legendRows}
             {
               style: 'invis',
               weight: 110,
+              minlen: 0,
             },
           );
         }
@@ -534,6 +592,7 @@ ${legendRows}
     }
 
     const lastBrace = output.lastIndexOf('}');
+    /* istanbul ignore if -- defensive fallback for malformed dot output */
     if (lastBrace === -1) {
       return output;
     }
@@ -579,6 +638,22 @@ ${legendRows}
 
           return anchorNodeId;
         });
+
+        /* istanbul ignore next -- content anchors are only added for nested scoped groups with slots */
+        if (scope.parentId && contentAnchorIds.length > 0) {
+          graph.setEdge(
+            {
+              v: this.toTopologyScopeAnchorNodeId(scope.id),
+              w: contentAnchorIds[0] as unknown as string,
+              name: `tg.layout.scope-content-anchor:${group.groupId}:${scope.id}`,
+            },
+            {
+              style: 'invis',
+              weight: 110,
+              minlen: 0,
+            },
+          );
+        }
 
         for (let index = 1; index < contentAnchorIds.length; index += 1) {
           graph.setEdge(
@@ -855,6 +930,25 @@ ${legendRows}
     const rightOrder =
       typeof right.hints?.topology?.order === 'number'
         ? right.hints.topology.order
+        : Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return String(left.id).localeCompare(String(right.id));
+  }
+
+  private compareNodesByLayoutFlowOrderThenId(
+    left: TgNode,
+    right: TgNode,
+  ): number {
+    const leftOrder =
+      typeof left.hints?.layout?.flowOrder === 'number'
+        ? left.hints.layout.flowOrder
+        : Number.MAX_SAFE_INTEGER;
+    const rightOrder =
+      typeof right.hints?.layout?.flowOrder === 'number'
+        ? right.hints.layout.flowOrder
         : Number.MAX_SAFE_INTEGER;
     if (leftOrder !== rightOrder) {
       return leftOrder - rightOrder;

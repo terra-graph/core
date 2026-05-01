@@ -1,30 +1,48 @@
 import { AdapterOperations } from '../../Operations/Operations.js';
-import { NodeId, TgNodeAttributes } from '../../TgGraph.js';
+import {
+  DefaultEdgeSemanticRoles,
+  NodeId,
+  TgEdgeSemanticHint,
+  TgNodeAttributes,
+} from '../../TgGraph.js';
 import { EdgeRule } from '../Rule.js';
 import { EdgeRuleConfig } from '../RuleConfig.js';
 
-type EdgeDirectionSemanticOptions = {
-  semantic: string;
+type EdgeSemanticOptions = {
+  semantic: TgEdgeSemanticHint;
   overwrite?: boolean;
   enforceDirection?: boolean;
 };
 
-const isNonEmptySemantic = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0;
+const isNonEmptySemanticHint = (
+  value: unknown,
+): value is TgEdgeSemanticHint => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
 
-export class EdgeDirectionSemantic extends EdgeRule {
+  const semantic = (value as Partial<TgEdgeSemanticHint>).semantic;
+  const role = (value as Partial<TgEdgeSemanticHint>).role;
+
+  return (
+    typeof semantic === 'string' &&
+    semantic.trim().length > 0 &&
+    typeof role === 'string' &&
+    Object.values(DefaultEdgeSemanticRoles).includes(
+      role as (typeof DefaultEdgeSemanticRoles)[keyof typeof DefaultEdgeSemanticRoles],
+    )
+  );
+};
+
+export class EdgeSemantic extends EdgeRule {
   constructor(config: EdgeRuleConfig) {
     if (config.options === undefined) {
-      throw new Error(
-        `Rule '${EdgeDirectionSemantic.name}' requires options in config`,
-      );
+      throw new Error(`Rule '${EdgeSemantic.name}' requires options in config`);
     }
 
-    const options = config.options as Partial<EdgeDirectionSemanticOptions>;
-    if (!isNonEmptySemantic(options.semantic)) {
-      throw new Error(
-        `Rule '${EdgeDirectionSemantic.name}' requires options.semantic`,
-      );
+    const options = config.options as Partial<EdgeSemanticOptions>;
+    if (!isNonEmptySemanticHint(options.semantic)) {
+      throw new Error(`Rule '${EdgeSemantic.name}' requires options.semantic`);
     }
 
     if (
@@ -32,7 +50,7 @@ export class EdgeDirectionSemantic extends EdgeRule {
       typeof options.overwrite !== 'boolean'
     ) {
       throw new Error(
-        `Rule '${EdgeDirectionSemantic.name}' options.overwrite must be a boolean when provided`,
+        `Rule '${EdgeSemantic.name}' options.overwrite must be a boolean when provided`,
       );
     }
 
@@ -41,7 +59,7 @@ export class EdgeDirectionSemantic extends EdgeRule {
       typeof options.enforceDirection !== 'boolean'
     ) {
       throw new Error(
-        `Rule '${EdgeDirectionSemantic.name}' options.enforceDirection must be a boolean when provided`,
+        `Rule '${EdgeSemantic.name}' options.enforceDirection must be a boolean when provided`,
       );
     }
 
@@ -63,7 +81,7 @@ export class EdgeDirectionSemantic extends EdgeRule {
       return updated;
     }
 
-    const options = this.config.options as EdgeDirectionSemanticOptions;
+    const options = this.config.options as EdgeSemanticOptions;
     const shouldOverwrite = options.overwrite ?? false;
     const shouldEnforceDirection = options.enforceDirection ?? false;
     const edges = updated.outEdges(nodeId);
@@ -76,13 +94,16 @@ export class EdgeDirectionSemantic extends EdgeRule {
       }
 
       const current = updated.getEdgeAttributes(edgeId);
-      if (!shouldOverwrite && current.directionSemantic !== undefined) {
+      if (!shouldOverwrite && current.hints?.semantic !== undefined) {
         continue;
       }
 
       updated = updated.setEdge(edgeId, nodeId, targetId, {
         ...current,
-        directionSemantic: options.semantic,
+        hints: {
+          ...current.hints,
+          semantic: options.semantic,
+        },
       });
     }
 
@@ -101,15 +122,19 @@ export class EdgeDirectionSemantic extends EdgeRule {
       const current = updated.getEdgeAttributes(edgeId);
       if (
         !shouldOverwrite &&
-        current.directionSemantic !== undefined &&
-        current.directionSemantic !== options.semantic
+        current.hints?.semantic !== undefined &&
+        (current.hints.semantic.semantic !== options.semantic.semantic ||
+          current.hints.semantic.role !== options.semantic.role)
       ) {
         continue;
       }
 
       updated = updated.removeEdge(edgeId).setEdge(edgeId, nodeId, sourceId, {
         ...current,
-        directionSemantic: options.semantic,
+        hints: {
+          ...current.hints,
+          semantic: options.semantic,
+        },
       });
     }
 
@@ -117,4 +142,4 @@ export class EdgeDirectionSemantic extends EdgeRule {
   }
 }
 
-EdgeRule.register(EdgeDirectionSemantic);
+EdgeRule.register(EdgeSemantic);

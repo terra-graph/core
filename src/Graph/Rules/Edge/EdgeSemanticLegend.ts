@@ -83,14 +83,12 @@ export class EdgeSemanticLegend extends EdgeRule {
       }
 
       const current = updated.getEdgeAttributes(edgeId);
-      if (
-        typeof current.directionSemantic !== 'string' ||
-        current.directionSemantic.trim().length === 0
-      ) {
+      const semantic = current.hints?.semantic?.semantic;
+      if (typeof semantic !== 'string' || semantic.trim().length === 0) {
         continue;
       }
 
-      const legend = options.legendBySemantic[current.directionSemantic];
+      const legend = options.legendBySemantic[semantic];
       if (!legend) {
         continue;
       }
