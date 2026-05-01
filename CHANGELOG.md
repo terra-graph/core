@@ -1,3 +1,11 @@
+# [1.0.0-rc.18](https://github.com/terra-graph/core/compare/v1.0.0-rc.17...v1.0.0-rc.18) (2026-05-01)
+
+
+### Features
+
+* better layout ([73a193c](https://github.com/terra-graph/core/commit/73a193cd76c34418248f4863a67c4b7fdab26bb8))
+* better semantics model ([bc253f4](https://github.com/terra-graph/core/commit/bc253f4d498eb71bee983464f57e071e980339d1))
+
 # [1.0.0-rc.17](https://github.com/terra-graph/core/compare/v1.0.0-rc.16...v1.0.0-rc.17) (2026-04-28)
 
 
