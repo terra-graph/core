@@ -1,3 +1,10 @@
+# [1.0.0-rc.19](https://github.com/terra-graph/core/compare/v1.0.0-rc.18...v1.0.0-rc.19) (2026-05-05)
+
+
+### Features
+
+* edge semantics ([49fea7d](https://github.com/terra-graph/core/commit/49fea7d79fc6af62975a5530f97de066033deec7))
+
 # [1.0.0-rc.18](https://github.com/terra-graph/core/compare/v1.0.0-rc.17...v1.0.0-rc.18) (2026-05-01)
 
 
