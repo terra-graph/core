@@ -14,10 +14,7 @@ const asDefaultEdgeSemantic = (
 
 export const DefaultEdgeSemantics = {
   Invokes: asDefaultEdgeSemantic('invokes', DefaultEdgeSemanticRoles.Primary),
-  Accesses: asDefaultEdgeSemantic(
-    'accesses',
-    DefaultEdgeSemanticRoles.Supporting,
-  ),
+  Accesses: asDefaultEdgeSemantic('accesses', DefaultEdgeSemanticRoles.Primary),
   Publishes: asDefaultEdgeSemantic(
     'publishes',
     DefaultEdgeSemanticRoles.Primary,
