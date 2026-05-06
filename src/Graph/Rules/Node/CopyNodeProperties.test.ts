@@ -2,6 +2,7 @@ import { DirectedGraph } from 'graphology';
 import { DotAdapter } from '../../Adapters/DotAdapter.js';
 import { GraphologyAdapter } from '../../Adapters/GraphologyAdapter.js';
 import {
+  NodeId,
   TG_SCHEMA_VERSION,
   TgGraph,
   asNodeId,
@@ -9,6 +10,29 @@ import {
   tgProjectionNodeIdFrom,
 } from '../../TgGraph.js';
 import { CopyNodeProperties } from './CopyNodeProperties.js';
+
+type CopyNodePropertiesPrivate = {
+  resolveDslReferences(
+    nodeId: NodeId,
+    node: Record<string, unknown>,
+    input: unknown,
+  ): unknown;
+  resolveValueReference(
+    nodeId: NodeId,
+    node: Record<string, unknown>,
+    value: { from: string },
+  ): unknown;
+};
+
+type CopyNodePropertiesStatics = {
+  getValueAtPath(target: Record<string, unknown>, path: string): unknown;
+  setValueAtPath(
+    target: Record<string, unknown>,
+    path: string,
+    value: unknown,
+  ): Record<string, unknown>;
+  cloneValue<T>(value: T): T;
+};
 
 describe('CopyNodeProperties.constructor', () => {
   it('shoud require options', () => {
@@ -260,7 +284,10 @@ describe('CopyNodeProperties.apply', () => {
   });
 
   it('shoud keep graph unchanged when requested properties do not exist on the source node', () => {
-    const anchorNodeId = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+    const anchorNodeId = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.handler',
+    );
     const projectionNodeId = tgProjectionNodeIdFrom(
       'core',
       'aws.lambda:handler',
@@ -311,7 +338,11 @@ describe('CopyNodeProperties.apply', () => {
         sourceNode: {
           nodeId: { eq: { from: 'projection.derivation.primaryAnchorNodeId' } },
         },
-        properties: ['hints.layout', 'adapter.DotAdapter.label', 'missing.path'],
+        properties: [
+          'hints.layout',
+          'adapter.DotAdapter.label',
+          'missing.path',
+        ],
       },
     });
 
@@ -323,6 +354,9 @@ describe('CopyNodeProperties.apply', () => {
 
   it('shoud resolve helper branches for references and path utilities', () => {
     const hook = createHook();
+    const hookPrivate = hook as unknown as CopyNodePropertiesPrivate;
+    const copyNodeProperties =
+      CopyNodeProperties as unknown as CopyNodePropertiesStatics;
     const nodeId = asNodeId('node-a');
     const node = {
       projection: {
@@ -333,36 +367,34 @@ describe('CopyNodeProperties.apply', () => {
     };
 
     expect(
-      (hook as any).resolveDslReferences(nodeId, node, [
+      hookPrivate.resolveDslReferences(nodeId, node, [
         { nodeId: { eq: { from: 'nodeId' } } },
         true,
       ]),
     ).toEqual([{ nodeId: { eq: String(nodeId) } }, true]);
 
+    expect(hookPrivate.resolveDslReferences(nodeId, node, 'literal')).toBe(
+      'literal',
+    );
     expect(
-      (hook as any).resolveDslReferences(nodeId, node, 'literal'),
-    ).toBe('literal');
-    expect(
-      (hook as any).resolveDslReferences(nodeId, node, {
+      hookPrivate.resolveDslReferences(nodeId, node, {
         missing: { from: 'projection.derivation.unknown' },
         keep: 'value',
       }),
     ).toEqual({ keep: 'value' });
 
     expect(
-      (hook as any).resolveValueReference(nodeId, node, { from: 'nodeId' }),
+      hookPrivate.resolveValueReference(nodeId, node, { from: 'nodeId' }),
     ).toBe(String(nodeId));
 
-    expect((CopyNodeProperties as any).getValueAtPath(node, '')).toBeUndefined();
+    expect(copyNodeProperties.getValueAtPath(node, '')).toBeUndefined();
     expect(
-      (CopyNodeProperties as any).getValueAtPath(node, 'projection.missing'),
+      copyNodeProperties.getValueAtPath(node, 'projection.missing'),
     ).toBeUndefined();
 
-    expect(
-      (CopyNodeProperties as any).setValueAtPath({}, '.', 'ignored'),
-    ).toEqual({});
+    expect(copyNodeProperties.setValueAtPath({}, '.', 'ignored')).toEqual({});
 
-    const cloned = (CopyNodeProperties as any).cloneValue({
+    const cloned = copyNodeProperties.cloneValue({
       list: [{ value: 1 }],
     });
     expect(cloned).toEqual({ list: [{ value: 1 }] });

@@ -15,12 +15,114 @@ import {
 } from '../../TgGraph.js';
 import { DeriveProjectionGraph } from './DeriveProjectionGraph.js';
 
+type ResolvedStrategyLike = {
+  id: string;
+  layer: string;
+  category?: string;
+  groupBy?: string;
+  display?: {
+    prefix?: string;
+    from?: string;
+  };
+  membership: {
+    direction: 'in' | 'out' | 'both';
+    maxDepth: number;
+    includeResources: string[];
+    excludeResources: string[];
+    stopAtOtherTriggers: boolean;
+  };
+  relationships: {
+    relation: string;
+    maxDepth: number;
+    minEvidence: number;
+  };
+};
+
+type RelationshipEvidenceLike = {
+  evidenceCount: number;
+  shortestPathLength?: number;
+  minEvidence: number;
+  samplePaths?: unknown[];
+};
+
+type DeriveProjectionGraphPrivate = {
+  resolveStrategies(): ResolvedStrategyLike[];
+  neighborIds(
+    direction: 'in' | 'out' | 'both',
+    nodeId: NodeId,
+    graph: GraphologyAdapter,
+  ): NodeId[];
+  shouldIncludeMember(
+    node: Record<string, unknown>,
+    membership: ResolvedStrategyLike['membership'],
+  ): boolean;
+  expandMembership(
+    strategy: ResolvedStrategyLike,
+    triggerId: NodeId,
+    nodeMap: Map<NodeId, Record<string, unknown>>,
+    graph: GraphologyAdapter,
+    allTriggerNodes: Set<NodeId>,
+  ): Set<NodeId>;
+  groupValue(
+    groupBy:
+      | 'address'
+      | 'resource_name'
+      | 'module_address'
+      | 'parent_module'
+      | 'name',
+    triggerId: NodeId,
+    triggerNode: Record<string, unknown>,
+  ): string;
+  logicalProjectionName(
+    triggerId: NodeId,
+    triggerNode: Record<string, unknown>,
+  ): string;
+  preferredProjectionLabel(
+    strategy: ResolvedStrategyLike,
+    triggerId: NodeId,
+    triggerNode: Record<string, unknown>,
+  ): string;
+  buildProjectionAddress(
+    strategy: ResolvedStrategyLike,
+    triggerId: NodeId,
+    resolvedAddresses: Map<NodeId, string> | undefined,
+  ): string;
+  buildProjectionLabel(
+    strategy: ResolvedStrategyLike,
+    triggerId: NodeId,
+    resolvedLabels: Map<NodeId, string> | undefined,
+  ): string;
+  mergeProjectionAnchors(
+    existing: Array<{ nodeId: NodeId; address?: string; role?: string }>,
+    next: { nodeId: NodeId; address?: string; role?: string },
+  ): Array<{ nodeId: NodeId; address?: string; role?: string }>;
+  inferRelationships(
+    projectionMembers: Map<NodeId, Set<NodeId>>,
+    projectionStrategies: Map<NodeId, ResolvedStrategyLike>,
+    memberToProjections: Map<NodeId, Set<NodeId>>,
+    graph: GraphologyAdapter,
+  ): Map<string, RelationshipEvidenceLike>;
+  resolveProjectionAddresses(
+    strategy: ResolvedStrategyLike,
+    triggerIds: NodeId[],
+    nodeMap: Map<NodeId, Record<string, unknown>>,
+  ): Map<NodeId, string>;
+  resolveProjectionLabels(
+    strategy: ResolvedStrategyLike,
+    triggerIds: NodeId[],
+    nodeMap: Map<NodeId, Record<string, unknown>>,
+    resolvedAddresses: Map<NodeId, string> | undefined,
+  ): Map<NodeId, string>;
+};
+
 describe('DeriveProjectionGraph', () => {
   const createRule = (options: unknown = { strategies: [] }) =>
     new DeriveProjectionGraph({
       node: { any: true },
       options: options as never,
     });
+  const asPrivateRule = (rule: DeriveProjectionGraph) =>
+    rule as unknown as DeriveProjectionGraphPrivate;
 
   describe('constructor', () => {
     it('should require options', () => {
@@ -33,29 +135,28 @@ describe('DeriveProjectionGraph', () => {
     });
 
     it('should require options.strategies', () => {
-      expect(
-        () =>
-          createRule({
-            strategy: [],
-          }),
+      expect(() =>
+        createRule({
+          strategy: [],
+        }),
       ).toThrow(`Rule 'DeriveProjectionGraph' requires options.strategies`);
     });
 
     it('should require each strategy to have an id', () => {
-      expect(
-        () =>
-          createRule({
-            strategies: [{ trigger: { any: true } }],
-          }),
-      ).toThrow(`Rule 'DeriveProjectionGraph' strategy at index 0 requires an id`);
+      expect(() =>
+        createRule({
+          strategies: [{ trigger: { any: true } }],
+        }),
+      ).toThrow(
+        `Rule 'DeriveProjectionGraph' strategy at index 0 requires an id`,
+      );
     });
 
     it('should require each strategy to have a trigger', () => {
-      expect(
-        () =>
-          createRule({
-            strategies: [{ id: 'aws.lambda' }],
-          }),
+      expect(() =>
+        createRule({
+          strategies: [{ id: 'aws.lambda' }],
+        }),
       ).toThrow(
         `Rule 'DeriveProjectionGraph' strategy 'aws.lambda' requires a trigger query`,
       );
@@ -543,7 +644,9 @@ describe('DeriveProjectionGraph', () => {
       edges: [],
     };
 
-    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(graph);
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
+      graph,
+    );
     const node = adapter.getNodeAttributes(nodeB);
     if (!node) {
       throw new Error('Missing node attributes');
@@ -667,19 +770,24 @@ describe('DeriveProjectionGraph', () => {
       ],
     };
 
-    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(graph);
-    const privateRule = rule as any;
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
+      graph,
+    );
+    const privateRule = asPrivateRule(rule);
     const strategy = privateRule.resolveStrategies()[0];
 
-    expect(privateRule.neighborIds('in', memberA, adapter)).toEqual([memberB, inbound]);
+    expect(privateRule.neighborIds('in', memberA, adapter)).toEqual([
+      memberB,
+      inbound,
+    ]);
     expect(privateRule.neighborIds('out', memberA, adapter)).toEqual([memberB]);
     expect(new Set(privateRule.neighborIds('both', memberA, adapter))).toEqual(
       new Set([inbound, memberB]),
     );
 
-    expect(
-      privateRule.shouldIncludeMember({}, strategy.membership),
-    ).toBe(false);
+    expect(privateRule.shouldIncludeMember({}, strategy.membership)).toBe(
+      false,
+    );
     expect(
       privateRule.shouldIncludeMember(
         {
@@ -697,7 +805,7 @@ describe('DeriveProjectionGraph', () => {
       ),
     ).toBe(false);
 
-    const stopMembershipStrategy = {
+    const stopMembershipStrategy: ResolvedStrategyLike = {
       ...strategy,
       membership: {
         ...strategy.membership,
@@ -801,9 +909,9 @@ describe('DeriveProjectionGraph', () => {
     );
     expect(projectionSkippingMembers).toEqual(new Set([memberA, memberB]));
 
-    expect(
-      privateRule.groupValue('address', memberA, terraformNode),
-    ).toBe('module.alpha.aws_lambda_function.handler');
+    expect(privateRule.groupValue('address', memberA, terraformNode)).toBe(
+      'module.alpha.aws_lambda_function.handler',
+    );
     expect(
       privateRule.groupValue('resource_name', memberA, terraformNode),
     ).toBe('aws_lambda_function.handler');
@@ -813,7 +921,9 @@ describe('DeriveProjectionGraph', () => {
     expect(
       privateRule.groupValue('parent_module', memberA, terraformNode),
     ).toBe('alpha');
-    expect(privateRule.groupValue('name', memberA, terraformNode)).toBe('handler');
+    expect(privateRule.groupValue('name', memberA, terraformNode)).toBe(
+      'handler',
+    );
     expect(privateRule.groupValue('name', asNodeId('fallback'), {})).toBe(
       String(asNodeId('fallback')),
     );
@@ -823,9 +933,9 @@ describe('DeriveProjectionGraph', () => {
         terraform: { resource: 'aws_lambda_function' },
       }),
     ).toBe('aws_lambda_function');
-    expect(
-      privateRule.logicalProjectionName(asNodeId('id-only'), {}),
-    ).toBe(String(asNodeId('id-only')));
+    expect(privateRule.logicalProjectionName(asNodeId('id-only'), {})).toBe(
+      String(asNodeId('id-only')),
+    );
 
     expect(
       privateRule.preferredProjectionLabel(
@@ -894,12 +1004,15 @@ describe('DeriveProjectionGraph', () => {
       new Map([[memberB, new Set([targetProjectionId])]]),
       adapter,
     );
-    expect(relationshipEvidence.get(`${String(sourceProjectionId)}->${String(targetProjectionId)}`))
-      .toMatchObject({
-        evidenceCount: 1,
-        shortestPathLength: 1,
-        minEvidence: 2,
-      });
+    expect(
+      relationshipEvidence.get(
+        `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
+      ),
+    ).toMatchObject({
+      evidenceCount: 1,
+      shortestPathLength: 1,
+      minEvidence: 2,
+    });
 
     const traversalOnlyEvidence = privateRule.inferRelationships(
       new Map([[sourceProjectionId, new Set([memberA])]]),
@@ -947,42 +1060,44 @@ describe('DeriveProjectionGraph', () => {
     };
     const lowEvidenceResult = new GraphResolver(
       new GraphologyAdapter(new DirectedGraph()),
-    ).resolve({
-      graph: lowEvidenceGraph,
-      phases: [
-        [
-          new DeriveProjectionGraph({
-            node: { any: true },
-            options: {
-              strategies: [
-                {
-                  id: 'aws.lambda',
-                  trigger: {
-                    attr: {
-                      key: 'terraform.resource',
-                      eq: 'aws_lambda_function',
+    )
+      .resolve({
+        graph: lowEvidenceGraph,
+        phases: [
+          [
+            new DeriveProjectionGraph({
+              node: { any: true },
+              options: {
+                strategies: [
+                  {
+                    id: 'aws.lambda',
+                    trigger: {
+                      attr: {
+                        key: 'terraform.resource',
+                        eq: 'aws_lambda_function',
+                      },
+                    },
+                    relationships: {
+                      minEvidence: 2,
+                      maxDepth: 1,
                     },
                   },
-                  relationships: {
-                    minEvidence: 2,
-                    maxDepth: 1,
-                  },
-                },
-                {
-                  id: 'aws.sqs',
-                  trigger: {
-                    attr: {
-                      key: 'terraform.resource',
-                      eq: 'aws_sqs_queue',
+                  {
+                    id: 'aws.sqs',
+                    trigger: {
+                      attr: {
+                        key: 'terraform.resource',
+                        eq: 'aws_sqs_queue',
+                      },
                     },
                   },
-                },
-              ],
-            },
-          }),
+                ],
+              },
+            }),
+          ],
         ],
-      ],
-    }).toTgGraph();
+      })
+      .toTgGraph();
 
     expect(
       lowEvidenceResult.edges.find(
@@ -1019,7 +1134,7 @@ describe('DeriveProjectionGraph', () => {
       ],
     });
 
-    const privateRule = rule as any;
+    const privateRule = asPrivateRule(rule);
     const strategy = privateRule.resolveStrategies()[0];
 
     expect(strategy.layer).toBe(DefaultProjectionLayers.Core);
@@ -1058,47 +1173,51 @@ describe('DeriveProjectionGraph', () => {
       groupBy: 'name',
     };
     expect(
-      privateRule.resolveProjectionAddresses(
-        whitespaceStrategy,
-        [whitespaceId],
-        new Map([
-          [
-            whitespaceId,
-            {
-              id: whitespaceId,
-              terraform: {
-                kind: 'resource',
-                address: 'aws_lambda_function.whitespace',
-                resource: 'aws_lambda_function',
-                name: '   ',
+      privateRule
+        .resolveProjectionAddresses(
+          whitespaceStrategy,
+          [whitespaceId],
+          new Map([
+            [
+              whitespaceId,
+              {
+                id: whitespaceId,
+                terraform: {
+                  kind: 'resource',
+                  address: 'aws_lambda_function.whitespace',
+                  resource: 'aws_lambda_function',
+                  name: '   ',
+                },
               },
-            },
-          ],
-        ]),
-      ).get(whitespaceId),
+            ],
+          ]),
+        )
+        .get(whitespaceId),
     ).toBe('unknown');
 
     const labelId = asNodeId('label-node');
     expect(
-      privateRule.resolveProjectionLabels(
-        { ...strategy, display: undefined },
-        [labelId],
-        new Map([
-          [
-            labelId,
-            {
-              id: labelId,
-              terraform: {
-                kind: 'resource',
-                address: 'aws_lambda_function.label',
-                resource: 'aws_lambda_function',
-                name: 'label',
+      privateRule
+        .resolveProjectionLabels(
+          { ...strategy, display: undefined },
+          [labelId],
+          new Map([
+            [
+              labelId,
+              {
+                id: labelId,
+                terraform: {
+                  kind: 'resource',
+                  address: 'aws_lambda_function.label',
+                  resource: 'aws_lambda_function',
+                  name: 'label',
+                },
               },
-            },
-          ],
-        ]),
-        undefined,
-      ).get(labelId),
+            ],
+          ]),
+          undefined,
+        )
+        .get(labelId),
     ).toBe('label');
   });
 
@@ -1126,7 +1245,7 @@ describe('DeriveProjectionGraph', () => {
       ],
     });
 
-    const privateRule = rule as any;
+    const privateRule = asPrivateRule(rule);
     const strategy = privateRule.resolveStrategies()[0];
     expect(strategy.layer).toBe('core');
     expect(strategy.category).toBe('runtime');
@@ -1151,36 +1270,38 @@ describe('DeriveProjectionGraph', () => {
     const a = asNodeId('dup-a');
     const b = asNodeId('dup-b');
     expect(
-      privateRule.resolveProjectionAddresses(
-        { ...strategy, groupBy: undefined },
-        [a, b],
-        new Map([
-          [
-            a,
-            {
-              id: a,
-              terraform: {
-                kind: 'resource',
-                resource: 'aws_lambda_function',
-                name: 'this',
-                parentModuleName: 'dup',
+      privateRule
+        .resolveProjectionAddresses(
+          { ...strategy, groupBy: undefined },
+          [a, b],
+          new Map([
+            [
+              a,
+              {
+                id: a,
+                terraform: {
+                  kind: 'resource',
+                  resource: 'aws_lambda_function',
+                  name: 'this',
+                  parentModuleName: 'dup',
+                },
               },
-            },
-          ],
-          [
-            b,
-            {
-              id: b,
-              terraform: {
-                kind: 'resource',
-                resource: 'aws_lambda_function',
-                name: 'this',
-                parentModuleName: 'dup',
+            ],
+            [
+              b,
+              {
+                id: b,
+                terraform: {
+                  kind: 'resource',
+                  resource: 'aws_lambda_function',
+                  name: 'this',
+                  parentModuleName: 'dup',
+                },
               },
-            },
-          ],
-        ]),
-      ).get(a),
+            ],
+          ]),
+        )
+        .get(a),
     ).toBe(String(a));
   });
 
@@ -1199,7 +1320,7 @@ describe('DeriveProjectionGraph', () => {
         },
       ],
     });
-    const privateRule = rule as any;
+    const privateRule = asPrivateRule(rule);
     const strategy = privateRule.resolveStrategies()[0];
 
     const a = asNodeId('a');
@@ -1244,8 +1365,12 @@ describe('DeriveProjectionGraph', () => {
       [a, b],
       duplicateNodeMap,
     );
-    expect(duplicateAddresses.get(a)).toBe('module.one.aws_lambda_function.this');
-    expect(duplicateAddresses.get(b)).toBe('module.two.aws_lambda_function.this');
+    expect(duplicateAddresses.get(a)).toBe(
+      'module.one.aws_lambda_function.this',
+    );
+    expect(duplicateAddresses.get(b)).toBe(
+      'module.two.aws_lambda_function.this',
+    );
 
     const duplicateLabels = privateRule.resolveProjectionLabels(
       strategy,
@@ -1307,14 +1432,13 @@ describe('DeriveProjectionGraph', () => {
       new Map([[target, new Set([targetProjection])]]),
       adapter,
     );
-    expect(evidence.get(`${String(sourceProjection)}->${String(targetProjection)}`))
-      .toMatchObject({
-        evidenceCount: 4,
-        shortestPathLength: 1,
-      });
-    expect(
-      evidence.get(`${String(sourceProjection)}->${String(targetProjection)}`)
-        .samplePaths,
-    ).toHaveLength(3);
+    const targetEvidence = evidence.get(
+      `${String(sourceProjection)}->${String(targetProjection)}`,
+    );
+    expect(targetEvidence).toMatchObject({
+      evidenceCount: 4,
+      shortestPathLength: 1,
+    });
+    expect(targetEvidence?.samplePaths).toHaveLength(3);
   });
 });

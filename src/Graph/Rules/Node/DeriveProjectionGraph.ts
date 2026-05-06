@@ -149,7 +149,10 @@ export class DeriveProjectionGraph extends NodeRule {
       .filter((current) => !graph.getNodeAttributes(current)?.projection);
     const nodeMap = new Map<NodeId, TgNodeAttributes>();
     for (const current of baseNodeIds) {
-      nodeMap.set(current, graph.getNodeAttributes(current) as TgNodeAttributes);
+      nodeMap.set(
+        current,
+        graph.getNodeAttributes(current) as TgNodeAttributes,
+      );
     }
 
     const triggerNodesByStrategy = new Map<string, NodeId[]>();
@@ -193,7 +196,9 @@ export class DeriveProjectionGraph extends NodeRule {
     const memberToProjections = new Map<NodeId, Set<NodeId>>();
 
     for (const strategy of resolved) {
-      for (const triggerId of triggerNodesByStrategy.get(strategy.id) as NodeId[]) {
+      for (const triggerId of triggerNodesByStrategy.get(
+        strategy.id,
+      ) as NodeId[]) {
         const triggerNode = nodeMap.get(triggerId) as TgNodeAttributes;
 
         const projectionAddress = this.buildProjectionAddress(
@@ -501,7 +506,7 @@ export class DeriveProjectionGraph extends NodeRule {
                 existing.shortestPathLength === undefined
                   ? nextDepth
                   : Math.min(existing.shortestPathLength, nextDepth);
-              const samplePaths = existing.samplePaths!;
+              const samplePaths = existing.samplePaths ?? [];
               if (samplePaths.length < MAX_SAMPLE_PATHS) {
                 const fullPath = [...current.path, next];
                 samplePaths.push({
@@ -725,9 +730,8 @@ export class DeriveProjectionGraph extends NodeRule {
       const preferredLabel = sanitizeGroupValue(
         this.preferredProjectionLabel(strategy, triggerId, triggerNode),
       );
-      const addressCount = (
-        preferredLabels.get(preferredLabel) as Set<string>
-      ).size;
+      const addressCount = (preferredLabels.get(preferredLabel) as Set<string>)
+        .size;
       if (addressCount <= 1) {
         labels.set(triggerId, preferredLabel);
         continue;
