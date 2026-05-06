@@ -8,8 +8,8 @@ import {
   TgEdgeAttributes,
   TgGraph,
   TgNode,
-  TgNodeKind,
   TgNodeTerraform,
+  TgTerraformNodeKind,
   edgeIdFrom,
   tgNodeIdFrom,
 } from '../TgGraph.js';
@@ -169,7 +169,7 @@ export class TerraformDotImporter implements Importer {
     return segments.slice(0, index).join('.');
   }
 
-  private resolveKind(address: string): TgNodeKind {
+  private resolveKind(address: string): TgTerraformNodeKind {
     if (address === 'root') {
       return 'root';
     }
@@ -207,7 +207,10 @@ export class TerraformDotImporter implements Importer {
     return segments.length > 1 ? 'resource' : 'terraform';
   }
 
-  private describeNode(address: string, kind: TgNodeKind): TgNodeTerraform {
+  private describeNode(
+    address: string,
+    kind: TgTerraformNodeKind,
+  ): TgNodeTerraform {
     const segments = address.split('.');
     let index = 0;
     while (segments[index] === 'module' && segments[index + 1]) {

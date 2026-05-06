@@ -1,4 +1,6 @@
+export * from './CopyNodeProperties.js';
 export * from './ConvertNodeToEdge.js';
+export * from './DeriveProjectionGraph.js';
 export * from './NodeDotProperties.js';
 export * from './NodeProperties.js';
 export * from './RemoveLeafChain.js';

@@ -4,7 +4,7 @@ export type EdgeId = string & { readonly __brand: 'EdgeId' };
 export const TG_ID_NAMESPACE = 'tg';
 export const TG_SCHEMA_VERSION = '1.0.0';
 
-export type TgNodeKind =
+export type TgTerraformNodeKind =
   | 'resource'
   | 'data'
   | 'local'
@@ -15,6 +15,24 @@ export type TgNodeKind =
   | 'root'
   | 'meta'
   | 'terraform';
+
+export type TgNodeKind = TgTerraformNodeKind | 'projection';
+
+export const isTgTerraformNodeKind = (
+  value: unknown,
+): value is TgTerraformNodeKind =>
+  [
+    'resource',
+    'data',
+    'local',
+    'var',
+    'output',
+    'module',
+    'provider',
+    'root',
+    'meta',
+    'terraform',
+  ].includes(value as TgTerraformNodeKind);
 
 export type ParsedTgNodeId = {
   namespace: string;
@@ -42,10 +60,98 @@ export type TgEdgeHints = {
   semantic?: TgEdgeSemanticHint;
 };
 
+export const DefaultProjectionLayers = {
+  Core: 'core',
+} as const;
+
+export type TgProjectionLayer =
+  (typeof DefaultProjectionLayers)[keyof typeof DefaultProjectionLayers];
+
+export const DefaultProjectionMembershipRelations = {
+  Realizes: 'realizes',
+  ContributesTo: 'contributes_to',
+} as const;
+
+export type TgProjectionMembershipRelation =
+  (typeof DefaultProjectionMembershipRelations)[keyof typeof DefaultProjectionMembershipRelations];
+
+export const DefaultProjectionRelationshipRelations = {
+  DependsOn: 'depends_on',
+  Exposes: 'exposes',
+  RoutesTo: 'routes_to',
+  Invokes: 'invokes',
+  ReadsFrom: 'reads_from',
+  WritesTo: 'writes_to',
+  PublishesTo: 'publishes_to',
+  SubscribesTo: 'subscribes_to',
+} as const;
+
+export type TgProjectionRelationshipRelation =
+  | (typeof DefaultProjectionRelationshipRelations)[keyof typeof DefaultProjectionRelationshipRelations]
+  | (string & {});
+
+export const DefaultProjectionDerivationSources = {
+  Plugin: 'plugin',
+  Profile: 'profile',
+  Inferred: 'inferred',
+} as const;
+
+export type TgProjectionDerivationSource =
+  (typeof DefaultProjectionDerivationSources)[keyof typeof DefaultProjectionDerivationSources];
+
+export const DefaultProjectionAnchorRoles = {
+  Trigger: 'trigger',
+  Member: 'member',
+} as const;
+
+export type TgProjectionAnchorRole =
+  (typeof DefaultProjectionAnchorRoles)[keyof typeof DefaultProjectionAnchorRoles];
+
+export const DefaultProjectionInferenceMethods = {
+  MembershipContraction: 'membership_contraction',
+  AnchorPath: 'anchor_path',
+} as const;
+
+export type TgProjectionInferenceMethod =
+  (typeof DefaultProjectionInferenceMethods)[keyof typeof DefaultProjectionInferenceMethods];
+
+export type TgProjectionMembership = {
+  relation: TgProjectionMembershipRelation;
+  source?: 'declared' | 'derived';
+  strategyId?: string;
+};
+
+export type TgProjectionEvidencePath = {
+  from: NodeId;
+  to: NodeId;
+  via?: NodeId[];
+};
+
+export type TgProjectionInferenceEvidence = {
+  derivedBy: TgProjectionInferenceMethod;
+  evidenceCount: number;
+  shortestPathLength?: number;
+  samplePaths?: TgProjectionEvidencePath[];
+};
+
+export type TgProjectionRelationship = {
+  relation: TgProjectionRelationshipRelation;
+  source?: 'declared' | 'derived';
+  strategyId?: string;
+  evidence?: TgProjectionInferenceEvidence;
+};
+
+export type TgEdgeProjection = {
+  layer: TgProjectionLayer;
+  membership?: TgProjectionMembership;
+  relationship?: TgProjectionRelationship;
+};
+
 export interface TgEdgeAttributes extends Record<string, unknown> {
   hints?: TgEdgeHints;
   legend?: TgEdgeLegendAttribute;
   renderHints?: TgEdgeRenderHints;
+  projection?: TgEdgeProjection;
   adapter?: Record<string, Record<string, unknown>>;
 }
 
@@ -65,7 +171,7 @@ export type TgEdge = {
 };
 
 export type TgNodeTerraform = {
-  kind?: TgNodeKind;
+  kind?: TgTerraformNodeKind;
   address?: string;
   resource?: string;
   name?: string;
@@ -95,6 +201,40 @@ export type TgNodeTerraformState = {
   source: 'state_show' | 'plan_show';
   effective: TgNodeTerraformStateInstance | null;
   instances: TgNodeTerraformStateInstance[];
+};
+
+export const DefaultProjectionNodeCategories = {
+  Service: 'service',
+  Store: 'store',
+  Queue: 'queue',
+  Boundary: 'boundary',
+  Runtime: 'runtime',
+  Integration: 'integration',
+} as const;
+
+export type TgProjectionNodeCategory =
+  (typeof DefaultProjectionNodeCategories)[keyof typeof DefaultProjectionNodeCategories];
+
+export type TgNodeProjectionAnchor = {
+  nodeId: NodeId;
+  address?: string;
+  role?: TgProjectionAnchorRole;
+};
+
+export type TgNodeProjectionDerivation = {
+  source: TgProjectionDerivationSource;
+  strategyId?: string;
+  groupKey?: string;
+  primaryAnchorNodeId?: NodeId;
+  anchors?: TgNodeProjectionAnchor[];
+};
+
+export type TgNodeProjection = {
+  layer: TgProjectionLayer;
+  address: string;
+  label: string;
+  category?: TgProjectionNodeCategory;
+  derivation?: TgNodeProjectionDerivation;
 };
 
 export type TgNodeLabelHints = {
@@ -156,6 +296,7 @@ export type TgNodeHints = {
 
 export type TgNodeAttributes = {
   terraform?: TgNodeTerraform;
+  projection?: TgNodeProjection;
   hints?: TgNodeHints;
   adapter?: Record<string, Record<string, unknown>>;
   [key: string]: unknown;
@@ -190,6 +331,13 @@ export const tgNodeIdFrom = (
   address: string,
   version = TG_SCHEMA_VERSION,
 ): NodeId => `${TG_ID_NAMESPACE}:${version}:${kind}:${address}` as NodeId;
+
+export const tgProjectionNodeIdFrom = (
+  layer: TgProjectionLayer,
+  address: string,
+  version = TG_SCHEMA_VERSION,
+): NodeId =>
+  `${TG_ID_NAMESPACE}:${version}:projection:${layer}:${address}` as NodeId;
 
 export const parseTgNodeId = (
   value: NodeId | string,

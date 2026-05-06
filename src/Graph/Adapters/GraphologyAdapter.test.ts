@@ -6,6 +6,7 @@ import {
   asEdgeId,
   asNodeId,
   tgNodeIdFrom,
+  tgProjectionNodeIdFrom,
 } from '../TgGraph.js';
 import { GraphologyAdapter } from './GraphologyAdapter.js';
 
@@ -947,6 +948,54 @@ describe('GraphologyAdapter.toTgGraph', () => {
         address: 'terraform',
         resource: 'terraform',
         name: 'terraform',
+      },
+    });
+  });
+
+  it('shoud preserve projection nodes without inferring terraform metadata', () => {
+    const graph = new DirectedGraph();
+    const nodeId = tgProjectionNodeIdFrom('core', 'api.public_gateway');
+    graph.addNode(nodeId, {
+      projection: {
+        layer: 'core',
+        address: 'api.public_gateway',
+        label: 'API Gateway',
+        category: 'service',
+        derivation: {
+          source: 'plugin',
+          strategyId: 'aws.api_gateway',
+          primaryAnchorNodeId: asNodeId('trigger-node'),
+          anchors: [
+            {
+              nodeId: asNodeId('trigger-node'),
+              address: 'aws_apigatewayv2_api.public',
+              role: 'trigger',
+            },
+          ],
+        },
+      },
+    });
+    const adapter = new GraphologyAdapter(graph);
+
+    expect(adapter.toTgGraph().nodes[nodeId]).toEqual({
+      id: nodeId,
+      projection: {
+        layer: 'core',
+        address: 'api.public_gateway',
+        label: 'API Gateway',
+        category: 'service',
+        derivation: {
+          source: 'plugin',
+          strategyId: 'aws.api_gateway',
+          primaryAnchorNodeId: asNodeId('trigger-node'),
+          anchors: [
+            {
+              nodeId: asNodeId('trigger-node'),
+              address: 'aws_apigatewayv2_api.public',
+              role: 'trigger',
+            },
+          ],
+        },
       },
     });
   });

@@ -12,12 +12,13 @@ import {
   type TgGraphHints,
   TgNode,
   TgNodeAttributes,
-  TgNodeKind,
   TgNodeTerraform,
   type TgNodeTerraformState,
   type TgNodeTerraformStateBase,
   type TgNodeTerraformStateInstance,
+  TgTerraformNodeKind,
   asNodeId,
+  isTgTerraformNodeKind,
   parseTgNodeId,
   tgNodeIdFrom,
 } from '../TgGraph.js';
@@ -237,7 +238,7 @@ export class GraphologyAdapter implements AdapterOperations {
 
   private describeNode(
     address: string,
-    kind: TgNodeKind,
+    kind: TgTerraformNodeKind,
   ): Pick<
     TgNodeTerraform,
     | 'resource'
@@ -351,7 +352,11 @@ export class GraphologyAdapter implements AdapterOperations {
       return undefined;
     }
 
-    const kind = kindRaw as TgNodeKind;
+    if (!isTgTerraformNodeKind(kindRaw)) {
+      return undefined;
+    }
+
+    const kind = kindRaw;
     const details = this.describeNode(addressRaw, kind);
     const moduleAddress =
       typeof terraform?.moduleAddress === 'string'

@@ -1,5 +1,6 @@
 import {
   DefaultEdgeSemanticRoles,
+  DefaultProjectionLayers,
   EdgeId,
   NodeId,
   TG_SCHEMA_VERSION,
@@ -9,6 +10,7 @@ import {
   edgeIdFrom,
   parseTgNodeId,
   tgNodeIdFrom,
+  tgProjectionNodeIdFrom,
 } from './TgGraph.js';
 
 const customSemantic = (semantic: string) => ({
@@ -38,6 +40,14 @@ describe('TgGraph.tgNodeIdFrom', () => {
   });
 });
 
+describe('TgGraph.tgProjectionNodeIdFrom', () => {
+  it('should create expected projection id', () => {
+    expect(
+      tgProjectionNodeIdFrom(DefaultProjectionLayers.Core, 'api.public'),
+    ).toStrictEqual(`tg:${TG_SCHEMA_VERSION}:projection:core:api.public`);
+  });
+});
+
 describe('TgGraph.parseTgNodeId', () => {
   it('should parse namespaced ids', () => {
     expect(
@@ -47,6 +57,17 @@ describe('TgGraph.parseTgNodeId', () => {
       version: TG_SCHEMA_VERSION,
       kind: 'resource',
       address: 'aws_s3_bucket.example',
+    });
+  });
+
+  it('should parse projection ids', () => {
+    expect(
+      parseTgNodeId(`tg:${TG_SCHEMA_VERSION}:projection:core:api.public`),
+    ).toStrictEqual({
+      namespace: 'tg',
+      version: TG_SCHEMA_VERSION,
+      kind: 'projection',
+      address: 'core:api.public',
     });
   });
 

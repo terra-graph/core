@@ -1,4 +1,5 @@
 import './Node/ConvertNodeToEdge.js';
+import './Node/DeriveProjectionGraph.js';
 import './Node/NodeDotProperties.js';
 import './Node/NodeProperties.js';
 import './Node/RemoveLeafChain.js';

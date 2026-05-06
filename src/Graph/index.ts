@@ -8,6 +8,7 @@ export * from './GraphPlugin.js';
 export * from './Decorator.js';
 export * from './Profile.js';
 export * from './ProfileRegistry.js';
+export * from './Plugins/index.js';
 export * from './Adapters/index.js';
 export * from './Decorators/index.js';
 export * from './Importers/index.js';
