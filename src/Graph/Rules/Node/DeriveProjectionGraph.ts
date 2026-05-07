@@ -79,7 +79,7 @@ type RelationshipEvidence = {
   layer: TgProjectionLayer;
   evidenceCount: number;
   shortestPathLength?: number;
-  samplePaths: TgProjectionInferenceEvidence['samplePaths'];
+  samplePaths: NonNullable<TgProjectionInferenceEvidence['samplePaths']>;
 };
 
 type QueueItem = {
@@ -506,7 +506,7 @@ export class DeriveProjectionGraph extends NodeRule {
                 existing.shortestPathLength === undefined
                   ? nextDepth
                   : Math.min(existing.shortestPathLength, nextDepth);
-              const samplePaths = existing.samplePaths ?? [];
+              const samplePaths = existing.samplePaths;
               if (samplePaths.length < MAX_SAMPLE_PATHS) {
                 const fullPath = [...current.path, next];
                 samplePaths.push({
