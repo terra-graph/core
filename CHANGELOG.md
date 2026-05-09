@@ -1,3 +1,16 @@
+# [1.0.0-rc.20](https://github.com/terra-graph/core/compare/v1.0.0-rc.19...v1.0.0-rc.20) (2026-05-09)
+
+
+### Bug Fixes
+
+* test coverage ([0d14c02](https://github.com/terra-graph/core/commit/0d14c0204a528ab9eeee297d4ca3e4e0acb9a148))
+
+
+### Features
+
+* add projection nodes rules ([eda24e6](https://github.com/terra-graph/core/commit/eda24e6dd40e984ef69764bf747db0a0ff8f08dc))
+* refactor projection semantics ([b193d45](https://github.com/terra-graph/core/commit/b193d45b395bee4e16280618c72df704f6334b46))
+
 # [1.0.0-rc.19](https://github.com/terra-graph/core/compare/v1.0.0-rc.18...v1.0.0-rc.19) (2026-05-05)
 
 
