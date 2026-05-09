@@ -1,3 +1,4 @@
+export * from './ApplyProjectionEdgeSemantics.js';
 export * from './CopyNodeProperties.js';
 export * from './ConvertNodeToEdge.js';
 export * from './DeriveProjectionGraph.js';

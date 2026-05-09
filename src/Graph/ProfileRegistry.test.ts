@@ -110,7 +110,7 @@ describe('ProfileRegistry.from', () => {
     });
     const two = new ProfileRegistry({
       'shared.profile': new Profile('shared.profile', {
-        phases: [{ phase: 'cleanup', rules: [] }],
+        phases: [{ phase: 'final', rules: [] }],
       }),
     });
 
@@ -118,7 +118,7 @@ describe('ProfileRegistry.from', () => {
     const resolved = combined.resolve('shared.profile');
 
     expect(resolved.serialize().phases).toEqual([
-      { phase: 'cleanup', rules: [] },
+      { phase: 'final', rules: [] },
     ]);
   });
 });

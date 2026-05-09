@@ -204,10 +204,10 @@ describe('Profile.serialize', () => {
     const profile = new Profile('my-profile', {
       phases: [
         {
-          phase: 'cleanup',
+          phase: 'final',
           rules: [
             createAlwaysMatch(
-              NodeQuery.from({ attr: { key: 'label', eq: 'cleanup' } }),
+              NodeQuery.from({ attr: { key: 'label', eq: 'final' } }),
             ),
           ],
         },
@@ -218,11 +218,11 @@ describe('Profile.serialize', () => {
 
     expect(json.phases).toStrictEqual([
       {
-        phase: 'cleanup',
+        phase: 'final',
         rules: [
           {
             id: 'AlwaysMatchRule',
-            config: { node: { attr: { key: 'label', eq: 'cleanup' } } },
+            config: { node: { attr: { key: 'label', eq: 'final' } } },
           },
         ],
       },
@@ -325,10 +325,10 @@ describe('Profile.deserialize', () => {
     const profile = new Profile('my-profile', {
       phases: [
         {
-          phase: 'cleanup',
+          phase: 'final',
           rules: [
             createAlwaysMatch(
-              NodeQuery.from({ attr: { key: 'label', eq: 'cleanup' } }),
+              NodeQuery.from({ attr: { key: 'label', eq: 'final' } }),
             ),
           ],
         },
@@ -579,13 +579,13 @@ describe('Profile.resolvePhases', () => {
             cleanup: {
               id: 'AlwaysMatchRule',
               config: {
-                node: { attr: { key: 'label', eq: 'plugin-cleanup' } },
+                node: { attr: { key: 'label', eq: 'plugin-final' } },
               },
             },
           },
           phases: [
             {
-              phase: 'cleanup',
+              phase: 'final',
               rules: [{ namedRule: 'cleanup' }],
             },
           ],
@@ -619,7 +619,7 @@ describe('Profile.resolvePhases', () => {
     });
     expect(phases[1][0].serialize()).toEqual({
       id: 'AlwaysMatchRule',
-      config: { node: { attr: { key: 'label', eq: 'plugin-cleanup' } } },
+      config: { node: { attr: { key: 'label', eq: 'plugin-final' } } },
     });
   });
 
@@ -1179,18 +1179,18 @@ describe('Profile.resolvePhases', () => {
     const profile = new Profile('phase-profile', {
       phases: [
         {
-          phase: 'cleanup',
+          phase: 'final',
           rules: [
             createAlwaysMatch(
-              NodeQuery.from({ attr: { key: 'label', eq: 'cleanup' } }),
+              NodeQuery.from({ attr: { key: 'label', eq: 'final' } }),
             ),
           ],
         },
         {
-          phase: 'normalize',
+          phase: 'pre',
           rules: [
             createAlwaysMatch(
-              NodeQuery.from({ attr: { key: 'label', eq: 'normalize' } }),
+              NodeQuery.from({ attr: { key: 'label', eq: 'pre' } }),
             ),
           ],
         },
@@ -1210,7 +1210,7 @@ describe('Profile.resolvePhases', () => {
     expect(phases).toHaveLength(3);
     expect(phases[0][0].serialize()).toEqual({
       id: 'AlwaysMatchRule',
-      config: { node: { attr: { key: 'label', eq: 'normalize' } } },
+      config: { node: { attr: { key: 'label', eq: 'pre' } } },
     });
     expect(phases[1][0].serialize()).toEqual({
       id: 'AlwaysMatchRule',
@@ -1218,18 +1218,18 @@ describe('Profile.resolvePhases', () => {
     });
     expect(phases[2][0].serialize()).toEqual({
       id: 'AlwaysMatchRule',
-      config: { node: { attr: { key: 'label', eq: 'cleanup' } } },
+      config: { node: { attr: { key: 'label', eq: 'final' } } },
     });
   });
 
-  it('shoud run inherited cleanup phases after main phases', () => {
+  it('shoud run inherited final phases after main phases', () => {
     const used = new Profile('used', {
       phases: [
         {
-          phase: 'cleanup',
+          phase: 'final',
           rules: [
             createAlwaysMatch(
-              NodeQuery.from({ attr: { key: 'label', eq: 'used-cleanup' } }),
+              NodeQuery.from({ attr: { key: 'label', eq: 'used-final' } }),
             ),
           ],
         },
@@ -1258,7 +1258,7 @@ describe('Profile.resolvePhases', () => {
     });
     expect(phases[1][0].serialize()).toEqual({
       id: 'AlwaysMatchRule',
-      config: { node: { attr: { key: 'label', eq: 'used-cleanup' } } },
+      config: { node: { attr: { key: 'label', eq: 'used-final' } } },
     });
   });
 });
@@ -1338,7 +1338,7 @@ describe('Profile.addPhases', () => {
       phases: [{ phase: 'main', rules: [] }],
     });
 
-    const updated = base.addPhases([{ phase: 'cleanup', rules: [] }]);
+    const updated = base.addPhases([{ phase: 'final', rules: [] }]);
 
     expect(base.serialize().phases).toHaveLength(1);
     expect(updated.serialize().phases).toHaveLength(2);

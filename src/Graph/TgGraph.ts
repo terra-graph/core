@@ -75,20 +75,7 @@ export const DefaultProjectionMembershipRelations = {
 export type TgProjectionMembershipRelation =
   (typeof DefaultProjectionMembershipRelations)[keyof typeof DefaultProjectionMembershipRelations];
 
-export const DefaultProjectionRelationshipRelations = {
-  DependsOn: 'depends_on',
-  Exposes: 'exposes',
-  RoutesTo: 'routes_to',
-  Invokes: 'invokes',
-  ReadsFrom: 'reads_from',
-  WritesTo: 'writes_to',
-  PublishesTo: 'publishes_to',
-  SubscribesTo: 'subscribes_to',
-} as const;
-
-export type TgProjectionRelationshipRelation =
-  | (typeof DefaultProjectionRelationshipRelations)[keyof typeof DefaultProjectionRelationshipRelations]
-  | (string & {});
+export type TgProjectionRelationshipRelation = string;
 
 export const DefaultProjectionDerivationSources = {
   Plugin: 'plugin',
@@ -100,7 +87,7 @@ export type TgProjectionDerivationSource =
   (typeof DefaultProjectionDerivationSources)[keyof typeof DefaultProjectionDerivationSources];
 
 export const DefaultProjectionAnchorRoles = {
-  Trigger: 'trigger',
+  RootNode: 'root_node',
   Member: 'member',
 } as const;
 
@@ -118,7 +105,7 @@ export type TgProjectionInferenceMethod =
 export type TgProjectionMembership = {
   relation: TgProjectionMembershipRelation;
   source?: 'declared' | 'derived';
-  strategyId?: string;
+  projectionName?: string;
 };
 
 export type TgProjectionEvidencePath = {
@@ -135,9 +122,9 @@ export type TgProjectionInferenceEvidence = {
 };
 
 export type TgProjectionRelationship = {
-  relation: TgProjectionRelationshipRelation;
+  relation?: TgProjectionRelationshipRelation;
   source?: 'declared' | 'derived';
-  strategyId?: string;
+  projectionName?: string;
   evidence?: TgProjectionInferenceEvidence;
 };
 
@@ -203,18 +190,6 @@ export type TgNodeTerraformState = {
   instances: TgNodeTerraformStateInstance[];
 };
 
-export const DefaultProjectionNodeCategories = {
-  Service: 'service',
-  Store: 'store',
-  Queue: 'queue',
-  Boundary: 'boundary',
-  Runtime: 'runtime',
-  Integration: 'integration',
-} as const;
-
-export type TgProjectionNodeCategory =
-  (typeof DefaultProjectionNodeCategories)[keyof typeof DefaultProjectionNodeCategories];
-
 export type TgNodeProjectionAnchor = {
   nodeId: NodeId;
   address?: string;
@@ -223,9 +198,9 @@ export type TgNodeProjectionAnchor = {
 
 export type TgNodeProjectionDerivation = {
   source: TgProjectionDerivationSource;
-  strategyId?: string;
+  projectionName?: string;
   groupKey?: string;
-  primaryAnchorNodeId?: NodeId;
+  rootNodeId?: NodeId;
   anchors?: TgNodeProjectionAnchor[];
 };
 
@@ -233,7 +208,6 @@ export type TgNodeProjection = {
   layer: TgProjectionLayer;
   address: string;
   label: string;
-  category?: TgProjectionNodeCategory;
   derivation?: TgNodeProjectionDerivation;
 };
 

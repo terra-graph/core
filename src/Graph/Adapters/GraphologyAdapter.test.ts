@@ -960,16 +960,15 @@ describe('GraphologyAdapter.toTgGraph', () => {
         layer: 'core',
         address: 'api.public_gateway',
         label: 'API Gateway',
-        category: 'service',
         derivation: {
           source: 'plugin',
-          strategyId: 'aws.api_gateway',
-          primaryAnchorNodeId: asNodeId('trigger-node'),
+          projectionName: 'aws.api_gateway',
+          rootNodeId: asNodeId('trigger-node'),
           anchors: [
             {
               nodeId: asNodeId('trigger-node'),
               address: 'aws_apigatewayv2_api.public',
-              role: 'trigger',
+              role: 'root_node',
             },
           ],
         },
@@ -983,16 +982,15 @@ describe('GraphologyAdapter.toTgGraph', () => {
         layer: 'core',
         address: 'api.public_gateway',
         label: 'API Gateway',
-        category: 'service',
         derivation: {
           source: 'plugin',
-          strategyId: 'aws.api_gateway',
-          primaryAnchorNodeId: asNodeId('trigger-node'),
+          projectionName: 'aws.api_gateway',
+          rootNodeId: asNodeId('trigger-node'),
           anchors: [
             {
               nodeId: asNodeId('trigger-node'),
               address: 'aws_apigatewayv2_api.public',
-              role: 'trigger',
+              role: 'root_node',
             },
           ],
         },

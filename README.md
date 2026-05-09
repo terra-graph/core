@@ -6,7 +6,7 @@ Core graph engine for terra-graph. This package contains the canonical graph mod
 - `TgGraph` is the source of truth for graph data.
 - Importers translate external formats into `TgGraph` (for example `TerraformDotImporter`).
 - Adapters own traversal and mutation operations; they are immutable at the object level.
-- Rules run through named phases in a `PhasePlan`: `pre`, `normalize`, `semantics`, `main`, `cleanup`.
+- Rules run through named phases in a `PhasePlan`: `pre`, `main`, `projection`, `final`.
 - Profiles resolve phases, rules, and render options and are applied by `GraphResolver`.
 - Renderers are selected by adapters and receive profile-defined options.
 - Plugins contribute named rules, named rule sets, and phase entries without mutating registries directly.
@@ -66,5 +66,6 @@ console.log(output);
 **Development Notes**
 - Prefer explicit types and classes over `any` and ad-hoc functions.
 - Keep new rules in explicit phases and implement `match` before `apply`.
+- Treat `main` as canonical graph mutation, `projection` as projection-layer derivation/interpretation, and `final` as decoration-only work.
 - Use `NodeRule` or `EdgeRule` and register concrete rules via `NodeRule.register(...)` or `EdgeRule.register(...)`.
 - Use named rules and named rule sets through registries rather than ad-hoc resolution.

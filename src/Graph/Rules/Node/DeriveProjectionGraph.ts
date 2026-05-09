@@ -1,12 +1,10 @@
 import { NodeQuery } from '../../Operations/Matchers/NodeQuery/NodeQuery.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
 import {
-  DefaultEdgeSemanticRoles,
   DefaultProjectionAnchorRoles,
   DefaultProjectionInferenceMethods,
   DefaultProjectionLayers,
   DefaultProjectionMembershipRelations,
-  DefaultProjectionRelationshipRelations,
   NodeId,
   TgEdgeAttributes,
   TgNodeAttributes,
@@ -14,68 +12,54 @@ import {
   TgProjectionInferenceEvidence,
   TgProjectionLayer,
   TgProjectionMembershipRelation,
-  TgProjectionNodeCategory,
-  TgProjectionRelationshipRelation,
   edgeIdFrom,
   tgProjectionNodeIdFrom,
 } from '../../TgGraph.js';
 import { NodeRule } from '../Rule.js';
 import { NodeRuleConfig } from '../RuleConfig.js';
 
-type ProjectionGroupBy =
-  | 'address'
-  | 'name'
-  | 'resource_name'
-  | 'module_address'
-  | 'parent_module';
-
 type ProjectionDirection = 'in' | 'out' | 'both';
-
-type ProjectionDisplay = {
-  prefix?: string;
-  from?: string;
-};
 
 type ProjectionMembershipOptions = {
   direction?: ProjectionDirection;
   maxDepth?: number;
   includeResources?: string[];
   excludeResources?: string[];
-  stopAtOtherTriggers?: boolean;
+  stopAtOtherRootNodes?: boolean;
 };
 
 type ProjectionRelationshipOptions = {
-  relation?: TgProjectionRelationshipRelation;
   maxDepth?: number;
   minEvidence?: number;
 };
 
-export type ProjectionDerivationStrategy = {
-  id: string;
+export type ProjectionDefinition = {
+  name: string;
   layer?: TgProjectionLayer;
-  category?: TgProjectionNodeCategory;
-  trigger: ReturnType<NodeQuery['getDsl']>;
-  groupBy?: ProjectionGroupBy;
-  display?: ProjectionDisplay;
+  rootNode: ReturnType<NodeQuery['getDsl']>;
   membership?: ProjectionMembershipOptions;
   relationships?: ProjectionRelationshipOptions;
 };
 
 type DeriveProjectionGraphOptions = {
-  strategies: ProjectionDerivationStrategy[];
+  projections: ProjectionDefinition[];
 };
 
-type ResolvedStrategy = ProjectionDerivationStrategy & {
+type DeriveProjectionGraphInput =
+  | {
+      options: unknown;
+    }
+  | NodeRuleConfig;
+
+type ResolvedProjectionDefinition = ProjectionDefinition & {
   layer: TgProjectionLayer;
-  groupBy?: ProjectionGroupBy;
   membership: Required<ProjectionMembershipOptions>;
   relationships: Required<ProjectionRelationshipOptions>;
-  triggerQuery: NodeQuery;
+  rootNodeQuery: NodeQuery;
 };
 
 type RelationshipEvidence = {
-  relation: TgProjectionRelationshipRelation;
-  strategyId: string;
+  projectionName: string;
   layer: TgProjectionLayer;
   evidenceCount: number;
   shortestPathLength?: number;
@@ -89,25 +73,10 @@ type QueueItem = {
 };
 
 const MAX_SAMPLE_PATHS = 3;
+const PROJECTION_PAIR_KEY_DELIMITER = '->';
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const getValueAtPath = (
-  target: Record<string, unknown>,
-  path: string,
-): unknown => {
-  if (!path) {
-    return undefined;
-  }
-
-  return path.split('.').reduce<unknown>((acc, key) => {
-    if (acc && typeof acc === 'object' && key in (acc as object)) {
-      return (acc as Record<string, unknown>)[key];
-    }
-    return undefined;
-  }, target);
-};
 
 const sanitizeGroupValue = (value: string): string =>
   value.trim().length > 0 ? value.trim() : 'unknown';
@@ -115,14 +84,26 @@ const sanitizeGroupValue = (value: string): string =>
 export class DeriveProjectionGraph extends NodeRule {
   private readonly optionsValue: DeriveProjectionGraphOptions;
 
-  constructor(config: NodeRuleConfig) {
-    if (config.options === undefined) {
+  constructor(config: DeriveProjectionGraphInput) {
+    const normalizedConfig: NodeRuleConfig =
+      'node' in config
+        ? config
+        : {
+            node: {
+              any: true,
+            },
+            options: config.options as Record<string, unknown> | undefined,
+          };
+
+    if (normalizedConfig.options === undefined) {
       throw new Error(
         `Rule '${DeriveProjectionGraph.name}' requires options in config`,
       );
     }
-    super(config);
-    this.optionsValue = DeriveProjectionGraph.parseOptions(config.options);
+    super(normalizedConfig);
+    this.optionsValue = DeriveProjectionGraph.parseOptions(
+      normalizedConfig.options,
+    );
   }
 
   public override apply(
@@ -139,7 +120,7 @@ export class DeriveProjectionGraph extends NodeRule {
       return graph;
     }
 
-    const resolved = this.resolveStrategies();
+    const resolved = this.resolveProjections();
     if (resolved.length === 0) {
       return graph;
     }
@@ -155,144 +136,146 @@ export class DeriveProjectionGraph extends NodeRule {
       );
     }
 
-    const triggerNodesByStrategy = new Map<string, NodeId[]>();
-    const projectionAddressesByStrategy = new Map<
+    const rootNodeIdsByProjection = new Map<string, NodeId[]>();
+    const projectionAddressesByDefinition = new Map<
       string,
       Map<NodeId, string>
     >();
-    const projectionLabelsByStrategy = new Map<string, Map<NodeId, string>>();
-    const allTriggerNodes = new Set<NodeId>();
+    const projectionLabelsByDefinition = new Map<string, Map<NodeId, string>>();
+    const allRootNodeIds = new Set<NodeId>();
 
-    for (const strategy of resolved) {
-      const triggers = baseNodeIds.filter((current) =>
-        strategy.triggerQuery.match(
+    for (const projection of resolved) {
+      const rootNodeIds = baseNodeIds.filter((current) =>
+        projection.rootNodeQuery.match(
           current,
           nodeMap.get(current) as TgNodeAttributes,
           graph,
         ),
       );
-      triggerNodesByStrategy.set(strategy.id, triggers);
-      projectionAddressesByStrategy.set(
-        strategy.id,
-        this.resolveProjectionAddresses(strategy, triggers, nodeMap),
+      rootNodeIdsByProjection.set(projection.name, rootNodeIds);
+      projectionAddressesByDefinition.set(
+        projection.name,
+        this.resolveProjectionAddresses(projection, rootNodeIds, nodeMap),
       );
-      projectionLabelsByStrategy.set(
-        strategy.id,
+      projectionLabelsByDefinition.set(
+        projection.name,
         this.resolveProjectionLabels(
-          strategy,
-          triggers,
+          projection,
+          rootNodeIds,
           nodeMap,
-          projectionAddressesByStrategy.get(strategy.id),
+          projectionAddressesByDefinition.get(projection.name),
         ),
       );
-      for (const triggerId of triggers) {
-        allTriggerNodes.add(triggerId);
+      for (const rootNodeId of rootNodeIds) {
+        allRootNodeIds.add(rootNodeId);
       }
     }
 
     let updated = graph;
     const projectionMembers = new Map<NodeId, Set<NodeId>>();
-    const projectionStrategies = new Map<NodeId, ResolvedStrategy>();
+    const projectionDefinitions = new Map<
+      NodeId,
+      ResolvedProjectionDefinition
+    >();
     const memberToProjections = new Map<NodeId, Set<NodeId>>();
 
-    for (const strategy of resolved) {
-      for (const triggerId of triggerNodesByStrategy.get(
-        strategy.id,
+    for (const projection of resolved) {
+      for (const rootNodeId of rootNodeIdsByProjection.get(
+        projection.name,
       ) as NodeId[]) {
-        const triggerNode = nodeMap.get(triggerId) as TgNodeAttributes;
+        const rootNode = nodeMap.get(rootNodeId) as TgNodeAttributes;
 
         const projectionAddress = this.buildProjectionAddress(
-          strategy,
-          triggerId,
-          projectionAddressesByStrategy.get(strategy.id),
+          projection,
+          rootNodeId,
+          projectionAddressesByDefinition.get(projection.name),
         );
-        const projectionId = tgProjectionNodeIdFrom(
-          strategy.layer,
+        const projectionNodeId = tgProjectionNodeIdFrom(
+          projection.layer,
           projectionAddress,
         );
         const projectionLabel = this.buildProjectionLabel(
-          strategy,
-          triggerId,
-          projectionLabelsByStrategy.get(strategy.id),
+          projection,
+          rootNodeId,
+          projectionLabelsByDefinition.get(projection.name),
         );
-        const existingProjection = updated.getNodeAttributes(projectionId)
+        const existingProjection = updated.getNodeAttributes(projectionNodeId)
           ?.projection as TgNodeAttributes['projection'] | undefined;
         const anchors = this.mergeProjectionAnchors(
           existingProjection?.derivation?.anchors,
           {
-            nodeId: triggerId,
-            address: triggerNode.terraform?.address,
-            role: DefaultProjectionAnchorRoles.Trigger,
+            nodeId: rootNodeId,
+            address: rootNode.terraform?.address,
+            role: DefaultProjectionAnchorRoles.RootNode,
           },
         );
 
-        updated = updated.setNodeAttributes(projectionId, {
+        updated = updated.setNodeAttributes(projectionNodeId, {
           projection: {
-            layer: strategy.layer,
+            layer: projection.layer,
             address: projectionAddress,
             label: projectionLabel,
-            category: strategy.category,
             derivation: {
               source: existingProjection?.derivation?.source ?? 'plugin',
-              strategyId:
-                existingProjection?.derivation?.strategyId ?? strategy.id,
+              projectionName:
+                existingProjection?.derivation?.projectionName ??
+                projection.name,
               groupKey: projectionAddress,
-              primaryAnchorNodeId:
-                existingProjection?.derivation?.primaryAnchorNodeId ??
-                triggerId,
+              rootNodeId:
+                existingProjection?.derivation?.rootNodeId ?? rootNodeId,
               anchors,
             },
           },
         });
 
-        projectionStrategies.set(projectionId, strategy);
+        projectionDefinitions.set(projectionNodeId, projection);
         this.addMember(
           projectionMembers,
           memberToProjections,
-          projectionId,
-          triggerId,
+          projectionNodeId,
+          rootNodeId,
         );
 
         updated = updated.setEdge(
           edgeIdFrom(
-            triggerId,
-            projectionId,
-            `projection:${strategy.id}:realizes`,
+            rootNodeId,
+            projectionNodeId,
+            `projection:${projection.name}:realizes`,
           ),
-          triggerId,
-          projectionId,
+          rootNodeId,
+          projectionNodeId,
           this.buildMembershipEdgeAttributes(
-            strategy.layer,
+            projection.layer,
             DefaultProjectionMembershipRelations.Realizes,
           ),
         );
 
         for (const memberId of this.expandMembership(
-          strategy,
-          triggerId,
+          projection,
+          rootNodeId,
           nodeMap,
           graph,
-          allTriggerNodes,
+          allRootNodeIds,
         )) {
-          if (memberId === triggerId) {
+          if (memberId === rootNodeId) {
             continue;
           }
           this.addMember(
             projectionMembers,
             memberToProjections,
-            projectionId,
+            projectionNodeId,
             memberId,
           );
           updated = updated.setEdge(
             edgeIdFrom(
               memberId,
-              projectionId,
-              `projection:${strategy.id}:contributes_to`,
+              projectionNodeId,
+              `projection:${projection.name}:contributes_to`,
             ),
             memberId,
-            projectionId,
+            projectionNodeId,
             this.buildMembershipEdgeAttributes(
-              strategy.layer,
+              projection.layer,
               DefaultProjectionMembershipRelations.ContributesTo,
             ),
           );
@@ -302,43 +285,32 @@ export class DeriveProjectionGraph extends NodeRule {
 
     const relationshipEvidence = this.inferRelationships(
       projectionMembers,
-      projectionStrategies,
+      projectionDefinitions,
       memberToProjections,
       graph,
     );
 
     for (const [key, evidence] of relationshipEvidence.entries()) {
-      const [from, to] = key.split('->') as [NodeId, NodeId];
+      const [from, to] = this.parseProjectionPairKey(key);
       if (evidence.evidenceCount < evidence.minEvidence) {
         continue;
       }
       updated = updated.setEdge(
-        edgeIdFrom(
-          from,
-          to,
-          `projection:${evidence.layer}:${evidence.relation}`,
-        ),
+        edgeIdFrom(from, to, `projection:${evidence.layer}:relationship`),
         from,
         to,
         {
           projection: {
             layer: evidence.layer,
             relationship: {
-              relation: evidence.relation,
               source: 'derived',
-              strategyId: evidence.strategyId,
+              projectionName: evidence.projectionName,
               evidence: {
                 derivedBy: DefaultProjectionInferenceMethods.AnchorPath,
                 evidenceCount: evidence.evidenceCount,
                 shortestPathLength: evidence.shortestPathLength,
                 samplePaths: evidence.samplePaths,
               },
-            },
-          },
-          hints: {
-            semantic: {
-              semantic: evidence.relation,
-              role: DefaultEdgeSemanticRoles.Primary,
             },
           },
         },
@@ -348,55 +320,52 @@ export class DeriveProjectionGraph extends NodeRule {
     return updated;
   }
 
-  private resolveStrategies(): ResolvedStrategy[] {
-    return this.optionsValue.strategies.map((strategy) => ({
-      ...strategy,
-      layer: strategy.layer ?? DefaultProjectionLayers.Core,
-      groupBy: strategy.groupBy,
+  private resolveProjections(): ResolvedProjectionDefinition[] {
+    return this.optionsValue.projections.map((projection) => ({
+      ...projection,
+      layer: projection.layer ?? DefaultProjectionLayers.Core,
       membership: {
-        direction: strategy.membership?.direction ?? 'both',
-        maxDepth: strategy.membership?.maxDepth ?? 0,
-        includeResources: strategy.membership?.includeResources ?? [],
-        excludeResources: strategy.membership?.excludeResources ?? [],
-        stopAtOtherTriggers: strategy.membership?.stopAtOtherTriggers ?? true,
+        direction: projection.membership?.direction ?? 'both',
+        maxDepth: projection.membership?.maxDepth ?? 0,
+        includeResources: projection.membership?.includeResources ?? [],
+        excludeResources: projection.membership?.excludeResources ?? [],
+        stopAtOtherRootNodes:
+          projection.membership?.stopAtOtherRootNodes ?? true,
       },
       relationships: {
-        relation:
-          strategy.relationships?.relation ??
-          DefaultProjectionRelationshipRelations.DependsOn,
-        maxDepth: strategy.relationships?.maxDepth ?? 3,
-        minEvidence: strategy.relationships?.minEvidence ?? 1,
+        maxDepth: projection.relationships?.maxDepth ?? 3,
+        minEvidence: projection.relationships?.minEvidence ?? 1,
       },
-      triggerQuery: NodeQuery.from(strategy.trigger),
+      rootNodeQuery: NodeQuery.from(projection.rootNode),
     }));
   }
 
   private expandMembership(
-    strategy: ResolvedStrategy,
-    triggerId: NodeId,
+    projection: ResolvedProjectionDefinition,
+    rootNodeId: NodeId,
     nodeMap: Map<NodeId, TgNodeAttributes>,
     graph: AdapterOperations,
-    allTriggerNodes: Set<NodeId>,
+    allRootNodeIds: Set<NodeId>,
   ): Set<NodeId> {
-    const members = new Set<NodeId>([triggerId]);
-    if (strategy.membership.maxDepth <= 0) {
+    const members = new Set<NodeId>([rootNodeId]);
+    if (projection.membership.maxDepth <= 0) {
       return members;
     }
 
     const queue: Array<{ nodeId: NodeId; depth: number }> = [
-      { nodeId: triggerId, depth: 0 },
+      { nodeId: rootNodeId, depth: 0 },
     ];
-    const visited = new Set<NodeId>([triggerId]);
+    const visited = new Set<NodeId>([rootNodeId]);
 
     while (queue.length > 0) {
       const current = queue.shift() as { nodeId: NodeId; depth: number };
 
-      if (current.depth >= strategy.membership.maxDepth) {
+      if (current.depth >= projection.membership.maxDepth) {
         continue;
       }
 
       for (const neighbor of this.neighborIds(
-        strategy.membership.direction,
+        projection.membership.direction,
         current.nodeId,
         graph,
       )) {
@@ -410,13 +379,13 @@ export class DeriveProjectionGraph extends NodeRule {
           continue;
         }
         if (
-          strategy.membership.stopAtOtherTriggers &&
-          neighbor !== triggerId &&
-          allTriggerNodes.has(neighbor)
+          projection.membership.stopAtOtherRootNodes &&
+          neighbor !== rootNodeId &&
+          allRootNodeIds.has(neighbor)
         ) {
           continue;
         }
-        if (!this.shouldIncludeMember(node, strategy.membership)) {
+        if (!this.shouldIncludeMember(node, projection.membership)) {
           continue;
         }
 
@@ -430,7 +399,7 @@ export class DeriveProjectionGraph extends NodeRule {
 
   private shouldIncludeMember(
     node: TgNodeAttributes,
-    membership: ResolvedStrategy['membership'],
+    membership: ResolvedProjectionDefinition['membership'],
   ): boolean {
     const resource = node.terraform?.resource;
     if (!resource) {
@@ -450,7 +419,7 @@ export class DeriveProjectionGraph extends NodeRule {
 
   private inferRelationships(
     projectionMembers: Map<NodeId, Set<NodeId>>,
-    projectionStrategies: Map<NodeId, ResolvedStrategy>,
+    projectionDefinitions: Map<NodeId, ResolvedProjectionDefinition>,
     memberToProjections: Map<NodeId, Set<NodeId>>,
     graph: AdapterOperations,
   ): Map<string, RelationshipEvidence & { minEvidence: number }> {
@@ -460,8 +429,8 @@ export class DeriveProjectionGraph extends NodeRule {
     >();
 
     for (const [sourceProjectionId, members] of projectionMembers.entries()) {
-      const strategy = projectionStrategies.get(sourceProjectionId);
-      if (!strategy || strategy.relationships.maxDepth <= 0) {
+      const projection = projectionDefinitions.get(sourceProjectionId);
+      if (!projection || projection.relationships.maxDepth <= 0) {
         continue;
       }
 
@@ -477,7 +446,7 @@ export class DeriveProjectionGraph extends NodeRule {
 
       while (queue.length > 0) {
         const current = queue.shift() as QueueItem;
-        if (current.depth >= strategy.relationships.maxDepth) {
+        if (current.depth >= projection.relationships.maxDepth) {
           continue;
         }
 
@@ -486,20 +455,22 @@ export class DeriveProjectionGraph extends NodeRule {
           const nextDepth = current.depth + 1;
           const nextMemberships = memberToProjections.get(next) ?? new Set();
           const otherProjectionIds = [...nextMemberships].filter(
-            (projectionId) => projectionId !== sourceProjectionId,
+            (projectionNodeId) => projectionNodeId !== sourceProjectionId,
           );
 
           if (otherProjectionIds.length > 0) {
             for (const targetProjectionId of otherProjectionIds) {
-              const key = `${String(sourceProjectionId)}->${String(targetProjectionId)}`;
+              const key = this.buildProjectionPairKey(
+                sourceProjectionId,
+                targetProjectionId,
+              );
               const existing = evidence.get(key) ?? {
-                relation: strategy.relationships.relation,
-                strategyId: strategy.id,
-                layer: strategy.layer,
+                projectionName: projection.name,
+                layer: projection.layer,
                 evidenceCount: 0,
                 shortestPathLength: undefined,
                 samplePaths: [],
-                minEvidence: strategy.relationships.minEvidence,
+                minEvidence: projection.relationships.minEvidence,
               };
               existing.evidenceCount += 1;
               existing.shortestPathLength =
@@ -538,6 +509,23 @@ export class DeriveProjectionGraph extends NodeRule {
     return evidence;
   }
 
+  private buildProjectionPairKey(from: NodeId, to: NodeId): string {
+    return `${String(from)}${PROJECTION_PAIR_KEY_DELIMITER}${String(to)}`;
+  }
+
+  private parseProjectionPairKey(key: string): [NodeId, NodeId] {
+    const [from, to] = key.split(PROJECTION_PAIR_KEY_DELIMITER) as [
+      NodeId | undefined,
+      NodeId | undefined,
+    ];
+    if (!from || !to) {
+      throw new Error(
+        `Rule '${DeriveProjectionGraph.name}' encountered an invalid projection pair key '${key}'`,
+      );
+    }
+    return [from, to];
+  }
+
   private neighborIds(
     direction: ProjectionDirection,
     nodeId: NodeId,
@@ -558,107 +546,61 @@ export class DeriveProjectionGraph extends NodeRule {
   }
 
   private buildProjectionAddress(
-    strategy: ResolvedStrategy,
-    triggerId: NodeId,
+    projection: ResolvedProjectionDefinition,
+    rootNodeId: NodeId,
     resolvedAddresses: Map<NodeId, string> | undefined,
   ): string {
     const value =
-      resolvedAddresses?.get(triggerId) ??
-      sanitizeGroupValue(String(triggerId));
-    return `${strategy.id}:${value}`;
+      resolvedAddresses?.get(rootNodeId) ??
+      sanitizeGroupValue(String(rootNodeId));
+    return `${projection.name}:${value}`;
   }
 
   private buildProjectionLabel(
-    strategy: ResolvedStrategy,
-    triggerId: NodeId,
+    _projection: ResolvedProjectionDefinition,
+    rootNodeId: NodeId,
     resolvedLabels: Map<NodeId, string> | undefined,
   ): string {
-    const base = resolvedLabels?.get(triggerId) ?? String(triggerId);
-    const prefix = strategy.display?.prefix?.trim();
-
-    if (prefix) {
-      return `${prefix} ${base}`.trim();
-    }
-    return base;
-  }
-
-  private groupValue(
-    groupBy: ProjectionGroupBy,
-    triggerId: NodeId,
-    triggerNode: TgNodeAttributes,
-  ): string {
-    if (groupBy === 'address') {
-      return triggerNode.terraform?.address ?? String(triggerId);
-    }
-    if (groupBy === 'resource_name') {
-      const resource = triggerNode.terraform?.resource ?? 'resource';
-      const name = triggerNode.terraform?.name ?? String(triggerId);
-      return `${resource}.${name}`;
-    }
-    if (groupBy === 'module_address') {
-      return triggerNode.terraform?.moduleAddress ?? 'root';
-    }
-    if (groupBy === 'parent_module') {
-      return triggerNode.terraform?.parentModuleName ?? 'root';
-    }
-    return (
-      triggerNode.terraform?.name ??
-      triggerNode.terraform?.address ??
-      String(triggerId)
-    );
+    return resolvedLabels?.get(rootNodeId) ?? String(rootNodeId);
   }
 
   private resolveProjectionAddresses(
-    strategy: ResolvedStrategy,
-    triggerIds: NodeId[],
+    _projection: ResolvedProjectionDefinition,
+    rootNodeIds: NodeId[],
     nodeMap: Map<NodeId, TgNodeAttributes>,
   ): Map<NodeId, string> {
     const addresses = new Map<NodeId, string>();
-    const triggers = triggerIds
-      .map((triggerId) => ({
-        triggerId,
-        triggerNode: nodeMap.get(triggerId),
+    const rootNodes = rootNodeIds
+      .map((rootNodeId) => ({
+        rootNodeId,
+        rootNode: nodeMap.get(rootNodeId),
       }))
       .filter(
-        (
-          entry,
-        ): entry is { triggerId: NodeId; triggerNode: TgNodeAttributes } =>
-          entry.triggerNode !== undefined,
+        (entry): entry is { rootNodeId: NodeId; rootNode: TgNodeAttributes } =>
+          entry.rootNode !== undefined,
       );
-
-    if (strategy.groupBy) {
-      for (const { triggerId, triggerNode } of triggers) {
-        addresses.set(
-          triggerId,
-          sanitizeGroupValue(
-            this.groupValue(strategy.groupBy, triggerId, triggerNode),
-          ),
-        );
-      }
-      return addresses;
-    }
 
     const preferredKeys = new Map<string, NodeId[]>();
-    for (const { triggerId, triggerNode } of triggers) {
+    for (const { rootNodeId, rootNode } of rootNodes) {
       const preferred = sanitizeGroupValue(
-        this.logicalProjectionName(triggerId, triggerNode),
+        this.logicalProjectionName(rootNodeId, rootNode),
       );
       const matches = preferredKeys.get(preferred) ?? [];
-      matches.push(triggerId);
+      matches.push(rootNodeId);
       preferredKeys.set(preferred, matches);
     }
 
-    for (const { triggerId, triggerNode } of triggers) {
+    for (const { rootNodeId, rootNode } of rootNodes) {
       const preferred = sanitizeGroupValue(
-        this.logicalProjectionName(triggerId, triggerNode),
+        this.logicalProjectionName(rootNodeId, rootNode),
       );
       const matches = preferredKeys.get(preferred) as NodeId[];
       addresses.set(
-        triggerId,
+        rootNodeId,
         matches.length <= 1
           ? preferred
           : sanitizeGroupValue(
-              triggerNode.terraform?.address ?? String(triggerId),
+              rootNode.terraform?.address ?? String(rootNodeId),
             ),
       );
     }
@@ -667,11 +609,11 @@ export class DeriveProjectionGraph extends NodeRule {
   }
 
   private logicalProjectionName(
-    triggerId: NodeId,
-    triggerNode: TgNodeAttributes,
+    rootNodeId: NodeId,
+    rootNode: TgNodeAttributes,
   ): string {
-    const parentModuleName = triggerNode.terraform?.parentModuleName?.trim();
-    const terraformName = triggerNode.terraform?.name?.trim();
+    const parentModuleName = rootNode.terraform?.parentModuleName?.trim();
+    const terraformName = rootNode.terraform?.name?.trim();
     const parts = new Set<string>();
 
     if (parentModuleName) {
@@ -687,96 +629,77 @@ export class DeriveProjectionGraph extends NodeRule {
     }
 
     return (
-      triggerNode.terraform?.address ??
-      triggerNode.terraform?.resource ??
-      String(triggerId)
+      rootNode.terraform?.address ??
+      rootNode.terraform?.resource ??
+      String(rootNodeId)
     );
   }
 
   private resolveProjectionLabels(
-    strategy: ResolvedStrategy,
-    triggerIds: NodeId[],
+    _projection: ResolvedProjectionDefinition,
+    rootNodeIds: NodeId[],
     nodeMap: Map<NodeId, TgNodeAttributes>,
     resolvedAddresses: Map<NodeId, string> | undefined,
   ): Map<NodeId, string> {
     const labels = new Map<NodeId, string>();
     const preferredLabels = new Map<string, Set<string>>();
-    const triggers = triggerIds
-      .map((triggerId) => ({
-        triggerId,
-        triggerNode: nodeMap.get(triggerId),
+    const rootNodes = rootNodeIds
+      .map((rootNodeId) => ({
+        rootNodeId,
+        rootNode: nodeMap.get(rootNodeId),
       }))
       .filter(
-        (
-          entry,
-        ): entry is { triggerId: NodeId; triggerNode: TgNodeAttributes } =>
-          entry.triggerNode !== undefined,
+        (entry): entry is { rootNodeId: NodeId; rootNode: TgNodeAttributes } =>
+          entry.rootNode !== undefined,
       );
 
-    for (const { triggerId, triggerNode } of triggers) {
+    for (const { rootNodeId, rootNode } of rootNodes) {
       const preferredLabel = sanitizeGroupValue(
-        this.preferredProjectionLabel(strategy, triggerId, triggerNode),
+        this.logicalProjectionName(rootNodeId, rootNode),
       );
       const projectionValue =
-        resolvedAddresses?.get(triggerId) ??
-        sanitizeGroupValue(String(triggerId));
+        resolvedAddresses?.get(rootNodeId) ??
+        sanitizeGroupValue(String(rootNodeId));
       const addresses =
         preferredLabels.get(preferredLabel) ?? new Set<string>();
       addresses.add(projectionValue);
       preferredLabels.set(preferredLabel, addresses);
     }
 
-    for (const { triggerId, triggerNode } of triggers) {
+    for (const { rootNodeId, rootNode } of rootNodes) {
       const preferredLabel = sanitizeGroupValue(
-        this.preferredProjectionLabel(strategy, triggerId, triggerNode),
+        this.logicalProjectionName(rootNodeId, rootNode),
       );
       const addressCount = (preferredLabels.get(preferredLabel) as Set<string>)
         .size;
       if (addressCount <= 1) {
-        labels.set(triggerId, preferredLabel);
+        labels.set(rootNodeId, preferredLabel);
         continue;
       }
 
       labels.set(
-        triggerId,
-        resolvedAddresses?.get(triggerId) ??
-          this.logicalProjectionName(triggerId, triggerNode),
+        rootNodeId,
+        resolvedAddresses?.get(rootNodeId) ??
+          this.logicalProjectionName(rootNodeId, rootNode),
       );
     }
 
     return labels;
   }
 
-  private preferredProjectionLabel(
-    strategy: ResolvedStrategy,
-    triggerId: NodeId,
-    triggerNode: TgNodeAttributes,
-  ): string {
-    const displayValue =
-      typeof strategy.display?.from === 'string'
-        ? getValueAtPath(
-            triggerNode as Record<string, unknown>,
-            strategy.display.from,
-          )
-        : undefined;
-
-    return String(
-      displayValue ?? this.logicalProjectionName(triggerId, triggerNode),
-    );
-  }
-
   private addMember(
     projectionMembers: Map<NodeId, Set<NodeId>>,
     memberToProjections: Map<NodeId, Set<NodeId>>,
-    projectionId: NodeId,
+    projectionNodeId: NodeId,
     memberId: NodeId,
   ) {
-    const members = projectionMembers.get(projectionId) ?? new Set<NodeId>();
+    const members =
+      projectionMembers.get(projectionNodeId) ?? new Set<NodeId>();
     members.add(memberId);
-    projectionMembers.set(projectionId, members);
+    projectionMembers.set(projectionNodeId, members);
 
     const projections = memberToProjections.get(memberId) ?? new Set<NodeId>();
-    projections.add(projectionId);
+    projections.add(projectionNodeId);
     memberToProjections.set(memberId, projections);
   }
 
@@ -784,23 +707,12 @@ export class DeriveProjectionGraph extends NodeRule {
     layer: TgProjectionLayer,
     relation: TgProjectionMembershipRelation,
   ): TgEdgeAttributes {
-    const role =
-      relation === DefaultProjectionMembershipRelations.Realizes
-        ? DefaultEdgeSemanticRoles.Primary
-        : DefaultEdgeSemanticRoles.Supporting;
-
     return {
       projection: {
         layer,
         membership: {
           relation,
           source: 'derived',
-        },
-      },
-      hints: {
-        semantic: {
-          semantic: relation,
-          role,
         },
       },
     };
@@ -825,51 +737,31 @@ export class DeriveProjectionGraph extends NodeRule {
   }
 
   private static parseOptions(input: unknown): DeriveProjectionGraphOptions {
-    if (!isObjectRecord(input) || !Array.isArray(input.strategies)) {
+    if (!isObjectRecord(input) || !Array.isArray(input.projections)) {
       throw new Error(
-        `Rule '${DeriveProjectionGraph.name}' requires options.strategies`,
+        `Rule '${DeriveProjectionGraph.name}' requires options.projections`,
       );
     }
 
-    const strategies = input.strategies.map((entry, index) => {
-      if (!isObjectRecord(entry) || typeof entry.id !== 'string') {
+    const projections = input.projections.map((entry, index) => {
+      if (!isObjectRecord(entry) || typeof entry.name !== 'string') {
         throw new Error(
-          `Rule '${DeriveProjectionGraph.name}' strategy at index ${index} requires an id`,
+          `Rule '${DeriveProjectionGraph.name}' projection at index ${index} requires a name`,
         );
       }
-      if (!('trigger' in entry)) {
+      if (!('rootNode' in entry)) {
         throw new Error(
-          `Rule '${DeriveProjectionGraph.name}' strategy '${entry.id}' requires a trigger query`,
+          `Rule '${DeriveProjectionGraph.name}' projection '${entry.name}' requires a rootNode query`,
         );
       }
 
       return {
-        id: entry.id,
+        name: entry.name,
         layer:
           typeof entry.layer === 'string'
             ? (entry.layer as TgProjectionLayer)
             : undefined,
-        category:
-          typeof entry.category === 'string'
-            ? (entry.category as TgProjectionNodeCategory)
-            : undefined,
-        trigger: entry.trigger as ReturnType<NodeQuery['getDsl']>,
-        groupBy:
-          typeof entry.groupBy === 'string'
-            ? (entry.groupBy as ProjectionGroupBy)
-            : undefined,
-        display: isObjectRecord(entry.display)
-          ? {
-              prefix:
-                typeof entry.display.prefix === 'string'
-                  ? entry.display.prefix
-                  : undefined,
-              from:
-                typeof entry.display.from === 'string'
-                  ? entry.display.from
-                  : undefined,
-            }
-          : undefined,
+        rootNode: entry.rootNode as ReturnType<NodeQuery['getDsl']>,
         membership: isObjectRecord(entry.membership)
           ? {
               direction:
@@ -890,19 +782,14 @@ export class DeriveProjectionGraph extends NodeRule {
                     (item): item is string => typeof item === 'string',
                   )
                 : undefined,
-              stopAtOtherTriggers:
-                typeof entry.membership.stopAtOtherTriggers === 'boolean'
-                  ? entry.membership.stopAtOtherTriggers
+              stopAtOtherRootNodes:
+                typeof entry.membership.stopAtOtherRootNodes === 'boolean'
+                  ? entry.membership.stopAtOtherRootNodes
                   : undefined,
             }
           : undefined,
         relationships: isObjectRecord(entry.relationships)
           ? {
-              relation:
-                typeof entry.relationships.relation === 'string'
-                  ? (entry.relationships
-                      .relation as TgProjectionRelationshipRelation)
-                  : undefined,
               maxDepth:
                 typeof entry.relationships.maxDepth === 'number'
                   ? entry.relationships.maxDepth
@@ -913,10 +800,10 @@ export class DeriveProjectionGraph extends NodeRule {
                   : undefined,
             }
           : undefined,
-      } satisfies ProjectionDerivationStrategy;
+      } satisfies ProjectionDefinition;
     });
 
-    return { strategies };
+    return { projections };
   }
 }
 

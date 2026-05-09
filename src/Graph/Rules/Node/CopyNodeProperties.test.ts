@@ -91,7 +91,7 @@ describe('CopyNodeProperties.apply', () => {
       node: { any: true },
       options: {
         sourceNode: {
-          nodeId: { eq: { from: 'projection.derivation.primaryAnchorNodeId' } },
+          nodeId: { eq: { from: 'projection.derivation.rootNodeId' } },
         },
         properties: ['hints.layout', `adapter.${DotAdapter.name}.label`],
       },
@@ -140,17 +140,16 @@ describe('CopyNodeProperties.apply', () => {
             layer: 'core',
             address: 'aws.lambda:handler',
             label: 'Lambda handler',
-            category: 'runtime',
             derivation: {
               source: 'plugin',
-              strategyId: 'aws.lambda',
+              projectionName: 'aws.lambda',
               groupKey: 'aws.lambda:handler',
-              primaryAnchorNodeId: anchorNodeId,
+              rootNodeId: anchorNodeId,
               anchors: [
                 {
                   nodeId: anchorNodeId,
                   address: 'aws_lambda_function.handler',
-                  role: 'trigger',
+                  role: 'root_node',
                 },
               ],
             },
@@ -209,12 +208,11 @@ describe('CopyNodeProperties.apply', () => {
             layer: 'core',
             address: 'aws.lambda:handler',
             label: 'Lambda handler',
-            category: 'runtime',
             derivation: {
               source: 'plugin',
-              strategyId: 'aws.lambda',
+              projectionName: 'aws.lambda',
               groupKey: 'aws.lambda:handler',
-              primaryAnchorNodeId: asNodeId('missing-anchor'),
+              rootNodeId: asNodeId('missing-anchor'),
               anchors: [],
             },
           },
@@ -249,12 +247,11 @@ describe('CopyNodeProperties.apply', () => {
             layer: 'core',
             address: 'aws.lambda:handler',
             label: 'Lambda handler',
-            category: 'runtime',
             derivation: {
               source: 'plugin',
-              strategyId: 'aws.lambda',
+              projectionName: 'aws.lambda',
               groupKey: 'aws.lambda:handler',
-              primaryAnchorNodeId: asNodeId('missing-anchor'),
+              rootNodeId: asNodeId('missing-anchor'),
               anchors: [],
             },
           },
@@ -312,12 +309,11 @@ describe('CopyNodeProperties.apply', () => {
             layer: 'core',
             address: 'aws.lambda:handler',
             label: 'Lambda handler',
-            category: 'runtime',
             derivation: {
               source: 'plugin',
-              strategyId: 'aws.lambda',
+              projectionName: 'aws.lambda',
               groupKey: 'aws.lambda:handler',
-              primaryAnchorNodeId: anchorNodeId,
+              rootNodeId: anchorNodeId,
               anchors: [],
             },
           },
@@ -336,7 +332,7 @@ describe('CopyNodeProperties.apply', () => {
       node: { nodeId: { eq: String(projectionNodeId) } },
       options: {
         sourceNode: {
-          nodeId: { eq: { from: 'projection.derivation.primaryAnchorNodeId' } },
+          nodeId: { eq: { from: 'projection.derivation.rootNodeId' } },
         },
         properties: [
           'hints.layout',
@@ -361,7 +357,7 @@ describe('CopyNodeProperties.apply', () => {
     const node = {
       projection: {
         derivation: {
-          primaryAnchorNodeId: asNodeId('anchor-a'),
+          rootNodeId: asNodeId('anchor-a'),
         },
       },
     };

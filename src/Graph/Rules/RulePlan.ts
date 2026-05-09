@@ -19,13 +19,7 @@ export type SerializedPhaseRule =
   | NamedRuleRef
   | NamedRuleSetRef;
 
-export const NAMED_PHASES = [
-  'pre',
-  'normalize',
-  'semantics',
-  'main',
-  'cleanup',
-] as const;
+export const NAMED_PHASES = ['pre', 'main', 'projection', 'final'] as const;
 
 export type NamedPhase = (typeof NAMED_PHASES)[number];
 

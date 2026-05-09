@@ -1,164 +1,172 @@
 import { DirectedGraph } from 'graphology';
 import { GraphologyAdapter } from '../../Adapters/GraphologyAdapter.js';
 import { GraphResolver } from '../../GraphResolver.js';
+import { AdapterOperations } from '../../Operations/Operations.js';
 import {
   DefaultProjectionAnchorRoles,
   DefaultProjectionLayers,
   DefaultProjectionMembershipRelations,
-  DefaultProjectionRelationshipRelations,
   NodeId,
   TG_SCHEMA_VERSION,
   TgGraph,
+  TgNodeAttributes,
+  TgNodeProjectionAnchor,
   asNodeId,
   tgNodeIdFrom,
   tgProjectionNodeIdFrom,
 } from '../../TgGraph.js';
 import { DeriveProjectionGraph } from './DeriveProjectionGraph.js';
 
-type ResolvedStrategyLike = {
-  id: string;
+type TestResolvedProjection = {
+  name: string;
   layer: string;
-  category?: string;
-  groupBy?: string;
-  display?: {
-    prefix?: string;
-    from?: string;
-  };
   membership: {
     direction: 'in' | 'out' | 'both';
     maxDepth: number;
     includeResources: string[];
     excludeResources: string[];
-    stopAtOtherTriggers: boolean;
+    stopAtOtherRootNodes: boolean;
   };
   relationships: {
-    relation: string;
     maxDepth: number;
     minEvidence: number;
   };
 };
 
-type RelationshipEvidenceLike = {
+type RelationshipEvidence = {
+  projectionName: string;
   evidenceCount: number;
   shortestPathLength?: number;
-  minEvidence: number;
-  samplePaths?: unknown[];
+  samplePaths: Array<{
+    from: NodeId;
+    to: NodeId;
+    via?: NodeId[];
+  }>;
 };
 
-type DeriveProjectionGraphPrivate = {
-  resolveStrategies(): ResolvedStrategyLike[];
+type ParseOptionsResult = {
+  projections: Array<{
+    name: string;
+    layer?: string;
+    rootNode: unknown;
+    membership?: {
+      direction?: 'in' | 'out' | 'both';
+      maxDepth?: number;
+      includeResources?: string[];
+      excludeResources?: string[];
+      stopAtOtherRootNodes?: boolean;
+    };
+    relationships?: {
+      maxDepth?: number;
+      minEvidence?: number;
+    };
+  }>;
+};
+
+type DeriveProjectionGraphTestHarness = {
+  resolveProjections(): TestResolvedProjection[];
   neighborIds(
     direction: 'in' | 'out' | 'both',
     nodeId: NodeId,
-    graph: GraphologyAdapter,
+    graph: AdapterOperations,
   ): NodeId[];
-  shouldIncludeMember(
-    node: Record<string, unknown>,
-    membership: ResolvedStrategyLike['membership'],
-  ): boolean;
   expandMembership(
-    strategy: ResolvedStrategyLike,
-    triggerId: NodeId,
-    nodeMap: Map<NodeId, Record<string, unknown>>,
-    graph: GraphologyAdapter,
-    allTriggerNodes: Set<NodeId>,
+    projection: TestResolvedProjection,
+    rootNodeId: NodeId,
+    nodeMap: Map<NodeId, TgNodeAttributes | undefined>,
+    graph: AdapterOperations,
+    allRootNodeIds: Set<NodeId>,
   ): Set<NodeId>;
-  groupValue(
-    groupBy:
-      | 'address'
-      | 'resource_name'
-      | 'module_address'
-      | 'parent_module'
-      | 'name',
-    triggerId: NodeId,
-    triggerNode: Record<string, unknown>,
-  ): string;
-  logicalProjectionName(
-    triggerId: NodeId,
-    triggerNode: Record<string, unknown>,
-  ): string;
-  preferredProjectionLabel(
-    strategy: ResolvedStrategyLike,
-    triggerId: NodeId,
-    triggerNode: Record<string, unknown>,
-  ): string;
+  shouldIncludeMember(
+    node: TgNodeAttributes | undefined,
+    membership: TestResolvedProjection['membership'],
+  ): boolean;
+  buildProjectionPairKey(from: NodeId, to: NodeId): string;
+  parseProjectionPairKey(key: string): [NodeId, NodeId];
+  logicalProjectionName(rootNodeId: NodeId, rootNode: TgNodeAttributes): string;
+  resolveProjectionAddresses(
+    projection: TestResolvedProjection,
+    rootNodeIds: NodeId[],
+    nodeMap: Map<NodeId, TgNodeAttributes | undefined>,
+  ): Map<NodeId, string>;
+  resolveProjectionLabels(
+    projection: TestResolvedProjection,
+    rootNodeIds: NodeId[],
+    nodeMap: Map<NodeId, TgNodeAttributes | undefined>,
+    resolvedAddresses: Map<NodeId, string> | undefined,
+  ): Map<NodeId, string>;
   buildProjectionAddress(
-    strategy: ResolvedStrategyLike,
-    triggerId: NodeId,
+    projection: TestResolvedProjection,
+    rootNodeId: NodeId,
     resolvedAddresses: Map<NodeId, string> | undefined,
   ): string;
   buildProjectionLabel(
-    strategy: ResolvedStrategyLike,
-    triggerId: NodeId,
+    projection: TestResolvedProjection,
+    rootNodeId: NodeId,
     resolvedLabels: Map<NodeId, string> | undefined,
   ): string;
   mergeProjectionAnchors(
-    existing: Array<{ nodeId: NodeId; address?: string; role?: string }>,
-    next: { nodeId: NodeId; address?: string; role?: string },
-  ): Array<{ nodeId: NodeId; address?: string; role?: string }>;
+    existing: TgNodeProjectionAnchor[] | undefined,
+    next: TgNodeProjectionAnchor,
+  ): TgNodeProjectionAnchor[];
   inferRelationships(
     projectionMembers: Map<NodeId, Set<NodeId>>,
-    projectionStrategies: Map<NodeId, ResolvedStrategyLike>,
+    projectionDefinitions: Map<NodeId, TestResolvedProjection>,
     memberToProjections: Map<NodeId, Set<NodeId>>,
-    graph: GraphologyAdapter,
-  ): Map<string, RelationshipEvidenceLike>;
-  resolveProjectionAddresses(
-    strategy: ResolvedStrategyLike,
-    triggerIds: NodeId[],
-    nodeMap: Map<NodeId, Record<string, unknown>>,
-  ): Map<NodeId, string>;
-  resolveProjectionLabels(
-    strategy: ResolvedStrategyLike,
-    triggerIds: NodeId[],
-    nodeMap: Map<NodeId, Record<string, unknown>>,
-    resolvedAddresses: Map<NodeId, string> | undefined,
-  ): Map<NodeId, string>;
+    graph: AdapterOperations,
+  ): Map<string, RelationshipEvidence & { minEvidence: number }>;
 };
 
+const asHarness = (
+  rule: DeriveProjectionGraph,
+): DeriveProjectionGraphTestHarness =>
+  rule as unknown as DeriveProjectionGraphTestHarness;
+
+const parseOptions = (input: unknown): ParseOptionsResult =>
+  (
+    DeriveProjectionGraph as unknown as {
+      parseOptions(inputValue: unknown): ParseOptionsResult;
+    }
+  ).parseOptions(input);
+
 describe('DeriveProjectionGraph', () => {
-  const createRule = (options: unknown = { strategies: [] }) =>
+  const createRule = (options: unknown = { projections: [] }) =>
     new DeriveProjectionGraph({
-      node: { any: true },
       options: options as never,
     });
-  const asPrivateRule = (rule: DeriveProjectionGraph) =>
-    rule as unknown as DeriveProjectionGraphPrivate;
 
   describe('constructor', () => {
     it('should require options', () => {
-      expect(
-        () =>
-          new DeriveProjectionGraph({
-            node: { any: true },
-          }),
-      ).toThrow(`Rule 'DeriveProjectionGraph' requires options in config`);
-    });
-
-    it('should require options.strategies', () => {
-      expect(() =>
-        createRule({
-          strategy: [],
-        }),
-      ).toThrow(`Rule 'DeriveProjectionGraph' requires options.strategies`);
-    });
-
-    it('should require each strategy to have an id', () => {
-      expect(() =>
-        createRule({
-          strategies: [{ trigger: { any: true } }],
-        }),
-      ).toThrow(
-        `Rule 'DeriveProjectionGraph' strategy at index 0 requires an id`,
+      expect(() => new DeriveProjectionGraph({} as never)).toThrow(
+        `Rule 'DeriveProjectionGraph' requires options in config`,
       );
     });
 
-    it('should require each strategy to have a trigger', () => {
+    it('should require options.projections', () => {
       expect(() =>
         createRule({
-          strategies: [{ id: 'aws.lambda' }],
+          projection: [],
+        }),
+      ).toThrow(`Rule 'DeriveProjectionGraph' requires options.projections`);
+    });
+
+    it('should require each projection to have a name', () => {
+      expect(() =>
+        createRule({
+          projections: [{ rootNode: { any: true } }],
         }),
       ).toThrow(
-        `Rule 'DeriveProjectionGraph' strategy 'aws.lambda' requires a trigger query`,
+        `Rule 'DeriveProjectionGraph' projection at index 0 requires a name`,
+      );
+    });
+
+    it('should require each projection to have a rootNode query', () => {
+      expect(() =>
+        createRule({
+          projections: [{ name: 'aws.lambda' }],
+        }),
+      ).toThrow(
+        `Rule 'DeriveProjectionGraph' projection 'aws.lambda' requires a rootNode query`,
       );
     });
   });
@@ -218,35 +226,28 @@ describe('DeriveProjectionGraph', () => {
     };
 
     const rule = new DeriveProjectionGraph({
-      node: { any: true },
       options: {
-        strategies: [
+        projections: [
           {
-            id: 'aws.api_gateway',
-            trigger: {
+            name: 'aws.api_gateway',
+            rootNode: {
               attr: { key: 'terraform.resource', eq: 'aws_apigatewayv2_api' },
             },
-            display: { prefix: 'API', from: 'terraform.name' },
-            category: 'service',
             membership: {
               direction: 'out',
               maxDepth: 1,
               includeResources: ['aws_apigatewayv2_integration'],
             },
             relationships: {
-              relation: 'invokes',
               maxDepth: 2,
             },
           },
           {
-            id: 'aws.lambda',
-            trigger: {
+            name: 'aws.lambda',
+            rootNode: {
               attr: { key: 'terraform.resource', eq: 'aws_lambda_function' },
             },
-            display: { prefix: 'Lambda', from: 'terraform.name' },
-            category: 'runtime',
             relationships: {
-              relation: 'invokes',
               maxDepth: 2,
             },
           },
@@ -271,18 +272,17 @@ describe('DeriveProjectionGraph', () => {
     expect(result.nodes[apiProjectionId]?.projection).toEqual({
       layer: 'core',
       address: 'aws.api_gateway:public',
-      label: 'API public',
-      category: 'service',
+      label: 'public',
       derivation: {
         source: 'plugin',
-        strategyId: 'aws.api_gateway',
+        projectionName: 'aws.api_gateway',
         groupKey: 'aws.api_gateway:public',
-        primaryAnchorNodeId: api,
+        rootNodeId: api,
         anchors: [
           {
             nodeId: api,
             address: 'aws_apigatewayv2_api.public',
-            role: 'trigger',
+            role: DefaultProjectionAnchorRoles.RootNode,
           },
         ],
       },
@@ -290,18 +290,17 @@ describe('DeriveProjectionGraph', () => {
     expect(result.nodes[lambdaProjectionId]?.projection).toEqual({
       layer: 'core',
       address: 'aws.lambda:handler',
-      label: 'Lambda handler',
-      category: 'runtime',
+      label: 'handler',
       derivation: {
         source: 'plugin',
-        strategyId: 'aws.lambda',
+        projectionName: 'aws.lambda',
         groupKey: 'aws.lambda:handler',
-        primaryAnchorNodeId: lambda,
+        rootNodeId: lambda,
         anchors: [
           {
             nodeId: lambda,
             address: 'aws_lambda_function.handler',
-            role: 'trigger',
+            role: DefaultProjectionAnchorRoles.RootNode,
           },
         ],
       },
@@ -314,36 +313,35 @@ describe('DeriveProjectionGraph', () => {
       DefaultProjectionMembershipRelations.Realizes,
     );
 
-    const supportsEdge = result.edges.find(
+    const contributesToEdge = result.edges.find(
       (edge) => edge.from === integration && edge.to === apiProjectionId,
     );
-    expect(supportsEdge?.attributes?.projection?.membership?.relation).toBe(
-      DefaultProjectionMembershipRelations.ContributesTo,
-    );
+    expect(
+      contributesToEdge?.attributes?.projection?.membership?.relation,
+    ).toBe(DefaultProjectionMembershipRelations.ContributesTo);
 
     const projectedEdge = result.edges.find(
       (edge) => edge.from === apiProjectionId && edge.to === lambdaProjectionId,
     );
-    expect(projectedEdge?.attributes?.projection?.relationship?.relation).toBe(
-      DefaultProjectionRelationshipRelations.Invokes,
-    );
-    expect(
-      projectedEdge?.attributes?.projection?.relationship?.evidence,
-    ).toEqual({
-      derivedBy: 'anchor_path',
-      evidenceCount: 1,
-      shortestPathLength: 1,
-      samplePaths: [
-        {
-          from: integration,
-          to: lambda,
-          via: [],
-        },
-      ],
+    expect(projectedEdge?.attributes?.projection?.relationship).toEqual({
+      source: 'derived',
+      projectionName: 'aws.api_gateway',
+      evidence: {
+        derivedBy: 'anchor_path',
+        evidenceCount: 1,
+        shortestPathLength: 1,
+        samplePaths: [
+          {
+            from: integration,
+            to: lambda,
+            via: [],
+          },
+        ],
+      },
     });
   });
 
-  it('should derive separate projections for repeated module-wrapped trigger names by default', () => {
+  it('should derive separate projections for repeated module-wrapped root node names by default', () => {
     const lambdaA = tgNodeIdFrom(
       'resource',
       'module.batch_messages.aws_lambda_function.this',
@@ -383,19 +381,15 @@ describe('DeriveProjectionGraph', () => {
       edges: [],
     };
 
-    const rule = new DeriveProjectionGraph({
-      node: { any: true },
-      options: {
-        strategies: [
-          {
-            id: 'aws.lambda',
-            trigger: {
-              attr: { key: 'terraform.resource', eq: 'aws_lambda_function' },
-            },
-            category: 'runtime',
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: {
+            attr: { key: 'terraform.resource', eq: 'aws_lambda_function' },
           },
-        ],
-      },
+        },
+      ],
     });
 
     const resolver = new GraphResolver(
@@ -427,195 +421,7 @@ describe('DeriveProjectionGraph', () => {
     });
   });
 
-  it('should disambiguate duplicate display labels when triggers resolve to different projections', () => {
-    const bucketA = tgNodeIdFrom(
-      'resource',
-      'module.input.aws_s3_bucket.s3_bucket_prod',
-    );
-    const bucketB = tgNodeIdFrom(
-      'resource',
-      'module.output.aws_s3_bucket.s3_bucket_prod',
-    );
-
-    const graph: TgGraph = {
-      schemaVersion: TG_SCHEMA_VERSION,
-      description: {},
-      nodes: {
-        [bucketA]: {
-          id: bucketA,
-          terraform: {
-            kind: 'resource',
-            address: 'module.input.aws_s3_bucket.s3_bucket_prod',
-            resource: 'aws_s3_bucket',
-            name: 's3_bucket_prod',
-            moduleAddress: 'module.input',
-            parentModuleName: 'input',
-          },
-        },
-        [bucketB]: {
-          id: bucketB,
-          terraform: {
-            kind: 'resource',
-            address: 'module.output.aws_s3_bucket.s3_bucket_prod',
-            resource: 'aws_s3_bucket',
-            name: 's3_bucket_prod',
-            moduleAddress: 'module.output',
-            parentModuleName: 'output',
-          },
-        },
-      },
-      edges: [],
-    };
-
-    const rule = new DeriveProjectionGraph({
-      node: { any: true },
-      options: {
-        strategies: [
-          {
-            id: 'aws.s3',
-            trigger: {
-              attr: { key: 'terraform.resource', eq: 'aws_s3_bucket' },
-            },
-            display: { prefix: 'S3', from: 'terraform.name' },
-            category: 'store',
-          },
-        ],
-      },
-    });
-
-    const resolver = new GraphResolver(
-      new GraphologyAdapter(new DirectedGraph()),
-    );
-    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
-
-    expect(
-      result.nodes[
-        tgProjectionNodeIdFrom(
-          DefaultProjectionLayers.Core,
-          'aws.s3:input.s3_bucket_prod',
-        )
-      ]?.projection,
-    ).toMatchObject({
-      address: 'aws.s3:input.s3_bucket_prod',
-      label: 'S3 input.s3_bucket_prod',
-    });
-    expect(
-      result.nodes[
-        tgProjectionNodeIdFrom(
-          DefaultProjectionLayers.Core,
-          'aws.s3:output.s3_bucket_prod',
-        )
-      ]?.projection,
-    ).toMatchObject({
-      address: 'aws.s3:output.s3_bucket_prod',
-      label: 'S3 output.s3_bucket_prod',
-    });
-  });
-
-  it('should retain all trigger anchors when multiple triggers are explicitly collapsed to one projection', () => {
-    const lambdaA = tgNodeIdFrom(
-      'resource',
-      'module.payments.aws_lambda_function.authorizer',
-    );
-    const lambdaB = tgNodeIdFrom(
-      'resource',
-      'module.payments.aws_lambda_function.processor',
-    );
-
-    const graph: TgGraph = {
-      schemaVersion: TG_SCHEMA_VERSION,
-      description: {},
-      nodes: {
-        [lambdaA]: {
-          id: lambdaA,
-          terraform: {
-            kind: 'resource',
-            address: 'module.payments.aws_lambda_function.authorizer',
-            resource: 'aws_lambda_function',
-            name: 'authorizer',
-            moduleAddress: 'module.payments',
-            parentModuleName: 'payments',
-          },
-        },
-        [lambdaB]: {
-          id: lambdaB,
-          terraform: {
-            kind: 'resource',
-            address: 'module.payments.aws_lambda_function.processor',
-            resource: 'aws_lambda_function',
-            name: 'processor',
-            moduleAddress: 'module.payments',
-            parentModuleName: 'payments',
-          },
-        },
-      },
-      edges: [],
-    };
-
-    const rule = new DeriveProjectionGraph({
-      node: { any: true },
-      options: {
-        strategies: [
-          {
-            id: 'aws.lambda',
-            trigger: {
-              attr: { key: 'terraform.resource', eq: 'aws_lambda_function' },
-            },
-            groupBy: 'parent_module',
-            display: { prefix: 'Lambda', from: 'terraform.parentModuleName' },
-            category: 'runtime',
-          },
-        ],
-      },
-    });
-
-    const resolver = new GraphResolver(
-      new GraphologyAdapter(new DirectedGraph()),
-    );
-    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
-    const projectionId = tgProjectionNodeIdFrom(
-      DefaultProjectionLayers.Core,
-      'aws.lambda:payments',
-    );
-
-    expect(result.nodes[projectionId]?.projection).toEqual({
-      layer: 'core',
-      address: 'aws.lambda:payments',
-      label: 'Lambda payments',
-      category: 'runtime',
-      derivation: {
-        source: 'plugin',
-        strategyId: 'aws.lambda',
-        groupKey: 'aws.lambda:payments',
-        primaryAnchorNodeId: lambdaA,
-        anchors: [
-          {
-            nodeId: lambdaA,
-            address: 'module.payments.aws_lambda_function.authorizer',
-            role: 'trigger',
-          },
-          {
-            nodeId: lambdaB,
-            address: 'module.payments.aws_lambda_function.processor',
-            role: 'trigger',
-          },
-        ],
-      },
-    });
-
-    expect(
-      result.edges.filter(
-        (edge) => edge.to === projectionId && edge.from === lambdaA,
-      ),
-    ).toHaveLength(1);
-    expect(
-      result.edges.filter(
-        (edge) => edge.to === projectionId && edge.from === lambdaB,
-      ),
-    ).toHaveLength(1);
-  });
-
-  it('should keep graph unchanged when the rule does not match, when invoked on a non-first node, or when there are no strategies', () => {
+  it('should keep graph unchanged when the rule does not match, when invoked on a non-first node, or when there are no projections', () => {
     const nodeA = tgNodeIdFrom('resource', 'aws_lambda_function.a');
     const nodeB = tgNodeIdFrom('resource', 'aws_lambda_function.b');
     const graph: TgGraph = {
@@ -655,24 +461,21 @@ describe('DeriveProjectionGraph', () => {
     const unmatchedRule = new DeriveProjectionGraph({
       node: { nodeId: { eq: 'missing-node' } },
       options: {
-        strategies: [],
+        projections: [],
       },
     });
     unmatchedRule.match(nodeB, node, adapter);
     expect(unmatchedRule.apply(nodeB, node, adapter)).toBe(adapter);
 
-    const nonFirstRule = new DeriveProjectionGraph({
-      node: { any: true },
-      options: {
-        strategies: [
-          {
-            id: 'aws.lambda',
-            trigger: {
-              attr: { key: 'terraform.resource', eq: 'aws_lambda_function' },
-            },
+    const nonFirstRule = createRule({
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: {
+            attr: { key: 'terraform.resource', eq: 'aws_lambda_function' },
           },
-        ],
-      },
+        },
+      ],
     });
     nonFirstRule.match(nodeB, node, adapter);
     expect(nonFirstRule.apply(nodeB, node, adapter)).toBe(adapter);
@@ -686,558 +489,423 @@ describe('DeriveProjectionGraph', () => {
     expect(emptyRule.apply(nodeA, firstNode, adapter)).toBe(adapter);
   });
 
-  it('should honor minEvidence and helper branches for membership, directions, grouping, and labels', () => {
-    const rule = createRule({
-      strategies: [
-        {
-          id: 'aws.lambda',
-          trigger: { any: true },
-          membership: {
-            includeResources: ['aws_lambda_function', 1],
-            excludeResources: ['aws_iam_role', 2],
-          },
-          relationships: {
-            relation: 'depends_on',
-            minEvidence: 2,
-            maxDepth: 1,
-          },
-        },
-      ],
-    });
+  it('should cover helper branches for parsing, traversal, grouping, and anchor merging', () => {
+    const rootId = asNodeId('root');
+    const memberId = asNodeId('member');
+    const otherRootId = asNodeId('other-root');
+    const projectionNodeId = asNodeId('projection-node');
+    const excludedId = asNodeId('excluded');
+    const missingResourceId = asNodeId('missing-resource');
+    const includeMissId = asNodeId('include-miss');
+    const duplicateA = asNodeId('duplicate-a');
+    const duplicateB = asNodeId('duplicate-b');
+    const fallbackId = asNodeId('fallback');
 
-    const sourceProjectionId = asNodeId('projection-source');
-    const targetProjectionId = asNodeId('projection-target');
-    const memberA = asNodeId('member-a');
-    const memberB = asNodeId('member-b');
-    const projectionNode = asNodeId('projection-neighbor');
-    const inbound = asNodeId('inbound');
-    const terraformNode = {
-      terraform: {
-        kind: 'resource' as const,
-        address: 'module.alpha.aws_lambda_function.handler',
-        resource: 'aws_lambda_function',
-        name: 'handler',
-        moduleAddress: 'module.alpha',
-        parentModuleName: 'alpha',
-      },
-    };
-
-    const graph: TgGraph = {
+    const tg: TgGraph = {
       schemaVersion: TG_SCHEMA_VERSION,
       description: {},
       nodes: {
-        [memberA]: { id: memberA, ...terraformNode },
-        [memberB]: {
-          id: memberB,
+        [rootId]: {
+          id: rootId,
           terraform: {
             kind: 'resource',
-            address: 'aws_sqs_queue.jobs',
-            resource: 'aws_sqs_queue',
-            name: 'jobs',
+            address: 'module.app.aws_lambda_function.root',
+            resource: 'aws_lambda_function',
+            name: 'root',
+            parentModuleName: 'app',
           },
         },
-        [projectionNode]: {
-          id: projectionNode,
-          projection: {
-            layer: 'core',
-            address: 'aws.lambda:projection',
-            label: 'projection',
-          },
-        },
-        [inbound]: {
-          id: inbound,
+        [memberId]: {
+          id: memberId,
           terraform: {
             kind: 'resource',
-            address: 'aws_iam_role.reader',
+            address: 'aws_iam_role.member',
             resource: 'aws_iam_role',
-            name: 'reader',
+            name: 'member',
           },
         },
-        [targetProjectionId]: {
-          id: targetProjectionId,
+        [otherRootId]: {
+          id: otherRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.other',
+            resource: 'aws_lambda_function',
+            name: 'other',
+          },
+        },
+        [projectionNodeId]: {
+          id: projectionNodeId,
           projection: {
             layer: 'core',
-            address: 'aws.sqs:jobs',
-            label: 'jobs',
+            address: 'projection:node',
+            label: 'Projection',
+          },
+        },
+        [excludedId]: {
+          id: excludedId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_s3_bucket.excluded',
+            resource: 'aws_s3_bucket',
+            name: 'excluded',
+          },
+        },
+        [missingResourceId]: {
+          id: missingResourceId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_unknown.no_resource',
+            name: 'no_resource',
+          },
+        },
+        [includeMissId]: {
+          id: includeMissId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_dynamodb_table.include_miss',
+            resource: 'aws_dynamodb_table',
+            name: 'include_miss',
+          },
+        },
+        [asNodeId('missing')]: {
+          id: asNodeId('missing'),
+          terraform: {
+            kind: 'resource',
+            address: 'aws_kms_key.missing',
+            resource: 'aws_kms_key',
+            name: 'missing',
+          },
+        },
+        [duplicateA]: {
+          id: duplicateA,
+          terraform: {
+            kind: 'resource',
+            address: 'module.alpha.aws_lambda_function.this',
+            resource: 'aws_lambda_function',
+            name: 'this',
+          },
+        },
+        [duplicateB]: {
+          id: duplicateB,
+          terraform: {
+            kind: 'resource',
+            address: 'module.beta.aws_lambda_function.this',
+            resource: 'aws_lambda_function',
+            name: 'this',
+          },
+        },
+        [fallbackId]: {
+          id: fallbackId,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_cloudwatch_log_group',
           },
         },
       },
       edges: [
-        { id: 'a-b' as never, from: memberA, to: memberB },
-        { id: 'b-a' as never, from: memberB, to: memberA },
-        { id: 'b-proj' as never, from: memberB, to: projectionNode },
-        { id: 'in-a' as never, from: inbound, to: memberA },
+        { id: 'edge-root-member' as never, from: rootId, to: memberId },
+        { id: 'edge-member-root' as never, from: memberId, to: rootId },
+        { id: 'edge-root-other' as never, from: rootId, to: otherRootId },
+        {
+          id: 'edge-root-projection' as never,
+          from: rootId,
+          to: projectionNodeId,
+        },
+        { id: 'edge-root-excluded' as never, from: rootId, to: excludedId },
+        {
+          id: 'edge-root-missing-resource' as never,
+          from: rootId,
+          to: missingResourceId,
+        },
+        {
+          id: 'edge-root-include-miss' as never,
+          from: rootId,
+          to: includeMissId,
+        },
+        {
+          id: 'edge-root-missing' as never,
+          from: rootId,
+          to: asNodeId('missing'),
+        },
       ],
     };
 
-    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
-      graph,
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: { any: true },
+          membership: {
+            direction: 'both',
+            maxDepth: 1,
+            includeResources: ['aws_iam_role'],
+            excludeResources: ['aws_s3_bucket'],
+            stopAtOtherRootNodes: true,
+          },
+          relationships: {
+            maxDepth: 2,
+            minEvidence: 2,
+          },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+    const nodeMap = new Map(
+      adapter
+        .nodeIds()
+        .filter((id) => id !== asNodeId('missing'))
+        .map((id) => [id, adapter.getNodeAttributes(id)]),
     );
-    const privateRule = asPrivateRule(rule);
-    const strategy = privateRule.resolveStrategies()[0];
 
-    expect(privateRule.neighborIds('in', memberA, adapter)).toEqual([
-      memberB,
-      inbound,
+    expect(helpers.neighborIds('in', rootId, adapter)).toEqual([memberId]);
+    expect(helpers.neighborIds('out', rootId, adapter)).toEqual([
+      memberId,
+      otherRootId,
+      projectionNodeId,
+      excludedId,
+      missingResourceId,
+      includeMissId,
+      asNodeId('missing'),
     ]);
-    expect(privateRule.neighborIds('out', memberA, adapter)).toEqual([memberB]);
-    expect(new Set(privateRule.neighborIds('both', memberA, adapter))).toEqual(
-      new Set([inbound, memberB]),
+    expect(helpers.neighborIds('both', rootId, adapter)).toEqual(
+      expect.arrayContaining([
+        memberId,
+        otherRootId,
+        projectionNodeId,
+        excludedId,
+      ]),
     );
 
-    expect(privateRule.shouldIncludeMember({}, strategy.membership)).toBe(
-      false,
+    const expanded = helpers.expandMembership(
+      resolved,
+      rootId,
+      nodeMap,
+      adapter,
+      new Set([rootId, otherRootId]),
     );
+    expect([...expanded]).toEqual([rootId, memberId]);
+
     expect(
-      privateRule.shouldIncludeMember(
-        {
-          terraform: { resource: 'aws_iam_role' },
-        },
-        strategy.membership,
+      helpers.shouldIncludeMember(
+        nodeMap.get(missingResourceId),
+        resolved.membership,
       ),
     ).toBe(false);
     expect(
-      privateRule.shouldIncludeMember(
-        {
-          terraform: { resource: 'aws_sqs_queue' },
-        },
-        { ...strategy.membership, includeResources: ['aws_lambda_function'] },
-      ),
-    ).toBe(false);
-
-    const stopMembershipStrategy: ResolvedStrategyLike = {
-      ...strategy,
-      membership: {
-        ...strategy.membership,
-        direction: 'both',
-        maxDepth: 2,
+      helpers.shouldIncludeMember(nodeMap.get(excludedId), {
+        ...resolved.membership,
         includeResources: [],
-        excludeResources: [],
-        stopAtOtherTriggers: true,
-      },
-    };
-    const members = privateRule.expandMembership(
-      stopMembershipStrategy,
-      memberA,
-      new Map([
-        [memberA, { id: memberA, ...terraformNode }],
-        [
-          memberB,
-          {
-            id: memberB,
-            terraform: {
-              kind: 'resource',
-              address: 'aws_sqs_queue.jobs',
-              resource: 'aws_sqs_queue',
-              name: 'jobs',
-            },
-          },
-        ],
-        [projectionNode, graph.nodes[projectionNode]],
-        [inbound, graph.nodes[inbound]],
-      ]),
-      adapter,
-      new Set([memberA, memberB]),
-    );
-    expect(members).toEqual(new Set([memberA, inbound]));
-
-    const filteredMembers = privateRule.expandMembership(
-      {
-        ...strategy,
-        membership: {
-          ...strategy.membership,
-          direction: 'out',
-          maxDepth: 2,
-          includeResources: ['aws_lambda_function'],
-          excludeResources: [],
-          stopAtOtherTriggers: false,
-        },
-      },
-      memberA,
-      new Map([
-        [memberA, { id: memberA, ...terraformNode }],
-        [
-          memberB,
-          {
-            id: memberB,
-            terraform: {
-              kind: 'resource',
-              address: 'aws_sqs_queue.jobs',
-              resource: 'aws_sqs_queue',
-              name: 'jobs',
-            },
-          },
-        ],
-        [projectionNode, graph.nodes[projectionNode]],
-      ]),
-      adapter,
-      new Set<NodeId>(),
-    );
-    expect(filteredMembers).toEqual(new Set([memberA]));
-
-    const projectionSkippingMembers = privateRule.expandMembership(
-      {
-        ...strategy,
-        membership: {
-          ...strategy.membership,
-          direction: 'out',
-          maxDepth: 2,
-          includeResources: [],
-          excludeResources: [],
-          stopAtOtherTriggers: false,
-        },
-      },
-      memberA,
-      new Map([
-        [memberA, { id: memberA, ...terraformNode }],
-        [
-          memberB,
-          {
-            id: memberB,
-            terraform: {
-              kind: 'resource',
-              address: 'aws_sqs_queue.jobs',
-              resource: 'aws_sqs_queue',
-              name: 'jobs',
-            },
-          },
-        ],
-        [projectionNode, graph.nodes[projectionNode]],
-      ]),
-      adapter,
-      new Set<NodeId>(),
-    );
-    expect(projectionSkippingMembers).toEqual(new Set([memberA, memberB]));
-
-    expect(privateRule.groupValue('address', memberA, terraformNode)).toBe(
-      'module.alpha.aws_lambda_function.handler',
-    );
-    expect(
-      privateRule.groupValue('resource_name', memberA, terraformNode),
-    ).toBe('aws_lambda_function.handler');
-    expect(
-      privateRule.groupValue('module_address', memberA, terraformNode),
-    ).toBe('module.alpha');
-    expect(
-      privateRule.groupValue('parent_module', memberA, terraformNode),
-    ).toBe('alpha');
-    expect(privateRule.groupValue('name', memberA, terraformNode)).toBe(
-      'handler',
-    );
-    expect(privateRule.groupValue('name', asNodeId('fallback'), {})).toBe(
-      String(asNodeId('fallback')),
-    );
-
-    expect(
-      privateRule.logicalProjectionName(asNodeId('resource-only'), {
-        terraform: { resource: 'aws_lambda_function' },
       }),
-    ).toBe('aws_lambda_function');
-    expect(privateRule.logicalProjectionName(asNodeId('id-only'), {})).toBe(
-      String(asNodeId('id-only')),
+    ).toBe(false);
+    expect(
+      helpers.shouldIncludeMember(
+        nodeMap.get(includeMissId),
+        resolved.membership,
+      ),
+    ).toBe(false);
+    expect(
+      helpers.shouldIncludeMember(nodeMap.get(memberId), resolved.membership),
+    ).toBe(true);
+
+    expect(helpers.buildProjectionPairKey(rootId, memberId)).toBe(
+      `${String(rootId)}->${String(memberId)}`,
+    );
+    expect(
+      helpers.parseProjectionPairKey(`${String(rootId)}->${String(memberId)}`),
+    ).toEqual([rootId, memberId]);
+    expect(() => helpers.parseProjectionPairKey('invalid')).toThrow(
+      "Rule 'DeriveProjectionGraph' encountered an invalid projection pair key 'invalid'",
+    );
+
+    const rootNode = nodeMap.get(rootId);
+    const fallbackNode = nodeMap.get(fallbackId);
+    if (!rootNode || !fallbackNode) {
+      throw new Error(
+        'Missing expected node attributes for logical name tests',
+      );
+    }
+    expect(helpers.logicalProjectionName(rootId, rootNode)).toBe('app.root');
+    expect(helpers.logicalProjectionName(fallbackId, fallbackNode)).toBe(
+      'aws_cloudwatch_log_group',
+    );
+    expect(
+      helpers.logicalProjectionName(asNodeId('plain-node'), {
+        id: asNodeId('plain-node'),
+      }),
+    ).toBe('plain-node');
+
+    const duplicateMap = new Map([
+      [duplicateA, nodeMap.get(duplicateA)],
+      [duplicateB, nodeMap.get(duplicateB)],
+    ]);
+    const addresses = helpers.resolveProjectionAddresses(
+      resolved,
+      [duplicateA, duplicateB, asNodeId('missing-root')],
+      duplicateMap,
+    );
+    expect(addresses.get(duplicateA)).toBe(
+      'module.alpha.aws_lambda_function.this',
+    );
+    expect(addresses.get(duplicateB)).toBe(
+      'module.beta.aws_lambda_function.this',
+    );
+
+    const labels = helpers.resolveProjectionLabels(
+      resolved,
+      [duplicateA, duplicateB, asNodeId('missing-root')],
+      duplicateMap,
+      addresses,
+    );
+    expect(labels.get(duplicateA)).toBe(
+      'module.alpha.aws_lambda_function.this',
+    );
+    expect(labels.get(duplicateB)).toBe('module.beta.aws_lambda_function.this');
+
+    expect(helpers.buildProjectionAddress(resolved, rootId, undefined)).toBe(
+      'aws.lambda:root',
+    );
+    expect(
+      helpers.buildProjectionAddress(resolved, asNodeId('   '), undefined),
+    ).toBe('aws.lambda:unknown');
+    expect(helpers.buildProjectionLabel(resolved, rootId, undefined)).toBe(
+      'root',
     );
 
     expect(
-      privateRule.preferredProjectionLabel(
-        { ...strategy, display: { from: '' } },
-        memberA,
-        terraformNode,
-      ),
-    ).toBe('alpha.handler');
-    expect(
-      privateRule.preferredProjectionLabel(
-        { ...strategy, display: { from: 'terraform.missing' } },
-        memberA,
-        terraformNode,
-      ),
-    ).toBe('alpha.handler');
-
-    expect(
-      privateRule.buildProjectionAddress(strategy, memberA, undefined),
-    ).toBe(`aws.lambda:${String(memberA)}`);
-    expect(
-      privateRule.buildProjectionLabel(
-        { ...strategy, display: { prefix: 'Lambda' } },
-        memberA,
-        undefined,
-      ),
-    ).toBe(`Lambda ${String(memberA)}`);
-
-    expect(
-      privateRule.mergeProjectionAnchors(
-        [
-          {
-            nodeId: memberA,
-            address: 'old',
-            role: DefaultProjectionAnchorRoles.Trigger,
-          },
-        ],
+      helpers.mergeProjectionAnchors(
+        [{ nodeId: rootId, address: 'old', role: 'member' }],
         {
-          nodeId: memberA,
+          nodeId: rootId,
           address: 'new',
-          role: DefaultProjectionAnchorRoles.Trigger,
+          role: DefaultProjectionAnchorRoles.RootNode,
         },
       ),
     ).toEqual([
       {
-        nodeId: memberA,
+        nodeId: rootId,
         address: 'new',
-        role: DefaultProjectionAnchorRoles.Trigger,
+        role: DefaultProjectionAnchorRoles.RootNode,
+      },
+    ]);
+    expect(
+      helpers.mergeProjectionAnchors([], {
+        nodeId: memberId,
+        address: 'member',
+        role: 'member',
+      }),
+    ).toEqual([
+      {
+        nodeId: memberId,
+        address: 'member',
+        role: 'member',
       },
     ]);
 
-    const relationshipEvidence = privateRule.inferRelationships(
-      new Map([[sourceProjectionId, new Set([memberA])]]),
-      new Map([
-        [
-          sourceProjectionId,
+    expect(
+      parseOptions({
+        projections: [
           {
-            ...strategy,
+            name: 'aws.test',
+            layer: 42,
+            rootNode: { any: true },
+            membership: {
+              direction: 7,
+              maxDepth: 'bad',
+              includeResources: ['ok', 1],
+              excludeResources: [2, 'skip'],
+              stopAtOtherRootNodes: 'nope',
+            },
             relationships: {
-              ...strategy.relationships,
-              maxDepth: 2,
-              minEvidence: 2,
+              maxDepth: 'bad',
+              minEvidence: 'bad',
             },
           },
         ],
-      ]),
-      new Map([[memberB, new Set([targetProjectionId])]]),
-      adapter,
-    );
-    expect(
-      relationshipEvidence.get(
-        `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
-      ),
-    ).toMatchObject({
-      evidenceCount: 1,
-      shortestPathLength: 1,
-      minEvidence: 2,
-    });
-
-    const traversalOnlyEvidence = privateRule.inferRelationships(
-      new Map([[sourceProjectionId, new Set([memberA])]]),
-      new Map([
-        [
-          sourceProjectionId,
-          {
-            ...strategy,
-            relationships: {
-              ...strategy.relationships,
-              maxDepth: 1,
-            },
-          },
-        ],
-      ]),
-      new Map(),
-      adapter,
-    );
-    expect(traversalOnlyEvidence.size).toBe(0);
-
-    const skippedEvidence = privateRule.inferRelationships(
-      new Map([[sourceProjectionId, new Set([memberA])]]),
-      new Map(),
-      new Map(),
-      adapter,
-    );
-    expect(skippedEvidence.size).toBe(0);
-
-    const lowEvidenceGraph: TgGraph = {
-      schemaVersion: TG_SCHEMA_VERSION,
-      description: {},
-      nodes: {
-        [memberA]: { id: memberA, ...terraformNode },
-        [memberB]: {
-          id: memberB,
-          terraform: {
-            kind: 'resource',
-            address: 'aws_sqs_queue.jobs',
-            resource: 'aws_sqs_queue',
-            name: 'jobs',
-          },
-        },
-      },
-      edges: [{ id: 'a-b' as never, from: memberA, to: memberB }],
-    };
-    const lowEvidenceResult = new GraphResolver(
-      new GraphologyAdapter(new DirectedGraph()),
-    )
-      .resolve({
-        graph: lowEvidenceGraph,
-        phases: [
-          [
-            new DeriveProjectionGraph({
-              node: { any: true },
-              options: {
-                strategies: [
-                  {
-                    id: 'aws.lambda',
-                    trigger: {
-                      attr: {
-                        key: 'terraform.resource',
-                        eq: 'aws_lambda_function',
-                      },
-                    },
-                    relationships: {
-                      minEvidence: 2,
-                      maxDepth: 1,
-                    },
-                  },
-                  {
-                    id: 'aws.sqs',
-                    trigger: {
-                      attr: {
-                        key: 'terraform.resource',
-                        eq: 'aws_sqs_queue',
-                      },
-                    },
-                  },
-                ],
-              },
-            }),
-          ],
-        ],
-      })
-      .toTgGraph();
-
-    expect(
-      lowEvidenceResult.edges.find(
-        (edge) =>
-          String(edge.from).includes('aws.lambda') &&
-          String(edge.to).includes('aws.sqs'),
-      ),
-    ).toBeUndefined();
-  });
-
-  it('should normalize parser input and helper fallbacks', () => {
-    const rule = createRule({
-      strategies: [
+      }),
+    ).toEqual({
+      projections: [
         {
-          id: 'aws.mixed',
-          layer: 1,
-          category: 2,
-          trigger: { any: true },
-          groupBy: 3,
-          display: { prefix: 4, from: 5 },
+          name: 'aws.test',
+          layer: undefined,
+          rootNode: { any: true },
           membership: {
-            direction: 'out',
-            maxDepth: 'x',
-            includeResources: ['aws_lambda_function', 1],
-            excludeResources: ['aws_iam_role', 2],
-            stopAtOtherTriggers: 'nope',
+            direction: undefined,
+            maxDepth: undefined,
+            includeResources: ['ok'],
+            excludeResources: ['skip'],
+            stopAtOtherRootNodes: undefined,
           },
           relationships: {
-            relation: 'invokes',
-            maxDepth: 'later',
-            minEvidence: 'later',
+            maxDepth: undefined,
+            minEvidence: undefined,
           },
         },
       ],
     });
-
-    const privateRule = asPrivateRule(rule);
-    const strategy = privateRule.resolveStrategies()[0];
-
-    expect(strategy.layer).toBe(DefaultProjectionLayers.Core);
-    expect(strategy.category).toBeUndefined();
-    expect(strategy.groupBy).toBeUndefined();
-    expect(strategy.display).toEqual({ prefix: undefined, from: undefined });
-    expect(strategy.membership).toMatchObject({
-      direction: 'out',
-      maxDepth: 0,
-      includeResources: ['aws_lambda_function'],
-      excludeResources: ['aws_iam_role'],
-      stopAtOtherTriggers: true,
-    });
-    expect(strategy.relationships).toMatchObject({
-      relation: 'invokes',
-      maxDepth: 3,
-      minEvidence: 1,
-    });
-
-    expect(privateRule.groupValue('address', asNodeId('fallback'), {})).toBe(
-      String(asNodeId('fallback')),
-    );
     expect(
-      privateRule.groupValue('resource_name', asNodeId('fallback'), {}),
-    ).toBe(`resource.${String(asNodeId('fallback'))}`);
-    expect(
-      privateRule.groupValue('module_address', asNodeId('fallback'), {}),
-    ).toBe('root');
-    expect(
-      privateRule.groupValue('parent_module', asNodeId('fallback'), {}),
-    ).toBe('root');
-
-    const whitespaceId = asNodeId('whitespace');
-    const whitespaceStrategy = {
-      ...strategy,
-      groupBy: 'name',
-    };
-    expect(
-      privateRule
-        .resolveProjectionAddresses(
-          whitespaceStrategy,
-          [whitespaceId],
-          new Map([
-            [
-              whitespaceId,
-              {
-                id: whitespaceId,
-                terraform: {
-                  kind: 'resource',
-                  address: 'aws_lambda_function.whitespace',
-                  resource: 'aws_lambda_function',
-                  name: '   ',
-                },
-              },
-            ],
-          ]),
-        )
-        .get(whitespaceId),
-    ).toBe('unknown');
-
-    const labelId = asNodeId('label-node');
-    expect(
-      privateRule
-        .resolveProjectionLabels(
-          { ...strategy, display: undefined },
-          [labelId],
-          new Map([
-            [
-              labelId,
-              {
-                id: labelId,
-                terraform: {
-                  kind: 'resource',
-                  address: 'aws_lambda_function.label',
-                  resource: 'aws_lambda_function',
-                  name: 'label',
-                },
-              },
-            ],
-          ]),
-          undefined,
-        )
-        .get(labelId),
-    ).toBe('label');
-  });
-
-  it('should parse explicit strategy metadata branches and duplicate address fallback to node id', () => {
-    const rule = createRule({
-      strategies: [
+      parseOptions({
+        projections: [
+          {
+            name: 'aws.invalid-include',
+            rootNode: { any: true },
+            membership: {
+              includeResources: 'bad',
+            },
+          },
+        ],
+      }),
+    ).toEqual({
+      projections: [
         {
-          id: 'aws.explicit',
-          layer: 'core',
-          category: 'runtime',
-          trigger: { any: true },
-          groupBy: 'address',
-          display: { prefix: 'Lambda', from: 'terraform.name' },
+          name: 'aws.invalid-include',
+          layer: undefined,
+          rootNode: { any: true },
           membership: {
-            direction: 'in',
+            direction: undefined,
+            maxDepth: undefined,
+            includeResources: undefined,
+            excludeResources: undefined,
+            stopAtOtherRootNodes: undefined,
+          },
+          relationships: undefined,
+        },
+      ],
+    });
+    expect(
+      parseOptions({
+        projections: [
+          {
+            name: 'aws.valid',
+            layer: 'core',
+            rootNode: { any: true },
+            membership: {
+              direction: 'out',
+              maxDepth: 2,
+              includeResources: ['aws_lambda_function'],
+            },
+            relationships: {
+              maxDepth: 4,
+              minEvidence: 2,
+            },
+          },
+        ],
+      }),
+    ).toEqual({
+      projections: [
+        {
+          name: 'aws.valid',
+          layer: 'core',
+          rootNode: { any: true },
+          membership: {
+            direction: 'out',
             maxDepth: 2,
-            stopAtOtherTriggers: false,
+            includeResources: ['aws_lambda_function'],
+            excludeResources: undefined,
+            stopAtOtherRootNodes: undefined,
           },
           relationships: {
-            relation: 'invokes',
             maxDepth: 4,
             minEvidence: 2,
           },
@@ -1245,150 +913,96 @@ describe('DeriveProjectionGraph', () => {
       ],
     });
 
-    const privateRule = asPrivateRule(rule);
-    const strategy = privateRule.resolveStrategies()[0];
-    expect(strategy.layer).toBe('core');
-    expect(strategy.category).toBe('runtime');
-    expect(strategy.groupBy).toBe('address');
-    expect(strategy.display).toEqual({
-      prefix: 'Lambda',
-      from: 'terraform.name',
-    });
-    expect(strategy.membership).toMatchObject({
-      direction: 'in',
-      maxDepth: 2,
-      includeResources: [],
-      excludeResources: [],
-      stopAtOtherTriggers: false,
-    });
-    expect(strategy.relationships).toMatchObject({
-      relation: 'invokes',
-      maxDepth: 4,
-      minEvidence: 2,
-    });
-
-    const a = asNodeId('dup-a');
-    const b = asNodeId('dup-b');
-    expect(
-      privateRule
-        .resolveProjectionAddresses(
-          { ...strategy, groupBy: undefined },
-          [a, b],
-          new Map([
-            [
-              a,
-              {
-                id: a,
-                terraform: {
-                  kind: 'resource',
-                  resource: 'aws_lambda_function',
-                  name: 'this',
-                  parentModuleName: 'dup',
-                },
-              },
-            ],
-            [
-              b,
-              {
-                id: b,
-                terraform: {
-                  kind: 'resource',
-                  resource: 'aws_lambda_function',
-                  name: 'this',
-                  parentModuleName: 'dup',
-                },
-              },
-            ],
-          ]),
-        )
-        .get(a),
-    ).toBe(String(a));
-  });
-
-  it('should cover duplicate address and label fallbacks plus repeated relationship evidence', () => {
-    const rule = createRule({
-      strategies: [
-        {
-          id: 'aws.lambda',
-          trigger: { any: true },
-          display: { from: 'terraform.name' },
-          relationships: {
-            relation: 'depends_on',
-            maxDepth: 2,
-            minEvidence: 1,
-          },
-        },
-      ],
-    });
-    const privateRule = asPrivateRule(rule);
-    const strategy = privateRule.resolveStrategies()[0];
-
-    const a = asNodeId('a');
-    const b = asNodeId('b');
-    const c = asNodeId('c');
-    const d = asNodeId('d');
-    const target = asNodeId('target');
-    const targetProjection = asNodeId('target-projection');
-    const sourceProjection = asNodeId('source-projection');
-
-    const duplicateNodeMap = new Map([
+    const fallbackDuplicateMap = new Map<NodeId, TgNodeAttributes | undefined>([
       [
-        a,
+        asNodeId('dup-no-address-a'),
         {
-          id: a,
+          id: asNodeId('dup-no-address-a'),
           terraform: {
-            kind: 'resource' as const,
-            address: 'module.one.aws_lambda_function.this',
+            kind: 'resource',
             resource: 'aws_lambda_function',
-            name: 'this',
-            parentModuleName: 'shared',
+            name: 'same',
           },
         },
       ],
       [
-        b,
+        asNodeId('dup-no-address-b'),
         {
-          id: b,
+          id: asNodeId('dup-no-address-b'),
           terraform: {
-            kind: 'resource' as const,
-            address: 'module.two.aws_lambda_function.this',
+            kind: 'resource',
             resource: 'aws_lambda_function',
-            name: 'this',
-            parentModuleName: 'shared',
+            name: 'same',
           },
         },
       ],
     ]);
+    const fallbackAddresses = helpers.resolveProjectionAddresses(
+      resolved,
+      [asNodeId('dup-no-address-a'), asNodeId('dup-no-address-b')],
+      fallbackDuplicateMap,
+    );
+    expect(fallbackAddresses.get(asNodeId('dup-no-address-a'))).toBe(
+      'dup-no-address-a',
+    );
+    expect(
+      helpers.resolveProjectionLabels(
+        resolved,
+        [asNodeId('dup-no-address-a'), asNodeId('dup-no-address-b')],
+        fallbackDuplicateMap,
+        undefined,
+      ),
+    ).toEqual(
+      new Map([
+        [asNodeId('dup-no-address-a'), 'same'],
+        [asNodeId('dup-no-address-b'), 'same'],
+      ]),
+    );
+  });
 
-    const duplicateAddresses = privateRule.resolveProjectionAddresses(
-      strategy,
-      [a, b],
-      duplicateNodeMap,
-    );
-    expect(duplicateAddresses.get(a)).toBe(
-      'module.one.aws_lambda_function.this',
-    );
-    expect(duplicateAddresses.get(b)).toBe(
-      'module.two.aws_lambda_function.this',
-    );
+  it('should cover relationship inference branches and skip low-evidence derived edges', () => {
+    const sourceProjectionId = asNodeId('projection-source');
+    const targetProjectionId = asNodeId('projection-target');
+    const memberA = asNodeId('member-a');
+    const memberB = asNodeId('member-b');
+    const targetMember = asNodeId('target-member');
+    const memberC = asNodeId('member-c');
+    const intermediate = asNodeId('intermediate');
+    const deadEnd = asNodeId('dead-end');
 
-    const duplicateLabels = privateRule.resolveProjectionLabels(
-      strategy,
-      [a, b],
-      duplicateNodeMap,
-      undefined,
-    );
-    expect(duplicateLabels.get(a)).toBe('shared.this');
-    expect(duplicateLabels.get(b)).toBe('shared.this');
-
-    const evidenceGraph: TgGraph = {
+    const tg: TgGraph = {
       schemaVersion: TG_SCHEMA_VERSION,
       description: {},
       nodes: {
-        [a]: duplicateNodeMap.get(a) as TgGraph['nodes'][string],
-        [b]: duplicateNodeMap.get(b) as TgGraph['nodes'][string],
-        [c]: {
-          id: c,
+        [memberA]: {
+          id: memberA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.a',
+            resource: 'aws_lambda_function',
+            name: 'a',
+          },
+        },
+        [memberB]: {
+          id: memberB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.b',
+            resource: 'aws_lambda_function',
+            name: 'b',
+          },
+        },
+        [targetMember]: {
+          id: targetMember,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.target',
+            resource: 'aws_sqs_queue',
+            name: 'target',
+          },
+        },
+        [memberC]: {
+          id: memberC,
           terraform: {
             kind: 'resource',
             address: 'aws_lambda_function.c',
@@ -1396,49 +1010,206 @@ describe('DeriveProjectionGraph', () => {
             name: 'c',
           },
         },
-        [d]: {
-          id: d,
+        [intermediate]: {
+          id: intermediate,
           terraform: {
             kind: 'resource',
-            address: 'aws_lambda_function.d',
-            resource: 'aws_lambda_function',
-            name: 'd',
+            address: 'aws_iam_role.intermediate',
+            resource: 'aws_iam_role',
+            name: 'intermediate',
           },
         },
-        [target]: {
-          id: target,
+        [deadEnd]: {
+          id: deadEnd,
           terraform: {
             kind: 'resource',
-            address: 'aws_sqs_queue.jobs',
-            resource: 'aws_sqs_queue',
-            name: 'jobs',
+            address: 'aws_iam_role.dead_end',
+            resource: 'aws_iam_role',
+            name: 'dead_end',
           },
         },
       },
       edges: [
-        { id: 'a-target' as never, from: a, to: target },
-        { id: 'b-target' as never, from: b, to: target },
-        { id: 'c-target' as never, from: c, to: target },
-        { id: 'd-target' as never, from: d, to: target },
+        { id: 'edge-a-intermediate' as never, from: memberA, to: intermediate },
+        { id: 'edge-a-target' as never, from: memberA, to: targetMember },
+        { id: 'edge-b-target' as never, from: memberB, to: targetMember },
+        { id: 'edge-c-target' as never, from: memberC, to: targetMember },
+        {
+          id: 'edge-intermediate-target' as never,
+          from: intermediate,
+          to: targetMember,
+        },
+        { id: 'edge-a-dead-end' as never, from: memberA, to: deadEnd },
       ],
     };
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const rule = createRule({
+      projections: [
+        {
+          name: 'source',
+          rootNode: { any: true },
+          relationships: { maxDepth: 2, minEvidence: 3 },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+    const projectionMembers = new Map([
+      [sourceProjectionId, new Set([memberA, memberB, memberC])],
+      [asNodeId('projection-skip'), new Set([deadEnd])],
+    ]);
+    const projectionDefinitions = new Map([
+      [sourceProjectionId, resolved],
+      [
+        asNodeId('projection-depth-limited'),
+        { ...resolved, relationships: { maxDepth: 1, minEvidence: 1 } },
+      ],
+    ]);
+    const memberToProjections = new Map([
+      [targetMember, new Set([targetProjectionId])],
+      [memberA, new Set([sourceProjectionId])],
+      [memberB, new Set([sourceProjectionId])],
+      [memberC, new Set([sourceProjectionId])],
+      [deadEnd, new Set([asNodeId('projection-depth-limited')])],
+    ]);
 
-    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
-      evidenceGraph,
-    );
-    const evidence = privateRule.inferRelationships(
-      new Map([[sourceProjection, new Set([a, b, c, d])]]),
-      new Map([[sourceProjection, strategy]]),
-      new Map([[target, new Set([targetProjection])]]),
+    const evidence = helpers.inferRelationships(
+      projectionMembers,
+      projectionDefinitions,
+      memberToProjections,
       adapter,
     );
     const targetEvidence = evidence.get(
-      `${String(sourceProjection)}->${String(targetProjection)}`,
+      `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
     );
     expect(targetEvidence).toMatchObject({
+      projectionName: 'source',
       evidenceCount: 4,
       shortestPathLength: 1,
     });
     expect(targetEvidence?.samplePaths).toHaveLength(3);
+
+    const applyRule = createRule({
+      projections: [
+        {
+          name: 'source',
+          rootNode: { attr: { key: 'terraform.name', eq: 'a' } },
+          relationships: { maxDepth: 2, minEvidence: 5 },
+        },
+        {
+          name: 'target',
+          rootNode: { attr: { key: 'terraform.name', eq: 'target' } },
+        },
+      ],
+    });
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const result = resolver
+      .resolve({ graph: tg, phases: [[applyRule]] })
+      .toTgGraph();
+    const derivedEdge = result.edges.find(
+      (edge) =>
+        edge.from ===
+          tgProjectionNodeIdFrom(DefaultProjectionLayers.Core, 'source:a') &&
+        edge.to ===
+          tgProjectionNodeIdFrom(DefaultProjectionLayers.Core, 'target:target'),
+    );
+    expect(derivedEdge).toBeUndefined();
+  });
+
+  it('should cover membership revisit and relationship depth-limit helper branches', () => {
+    const rootId = asNodeId('root');
+    const memberId = asNodeId('member');
+    const intermediateId = asNodeId('intermediate');
+    const projectionNodeId = asNodeId('projection-source');
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [rootId]: {
+          id: rootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.root',
+            resource: 'aws_lambda_function',
+            name: 'root',
+          },
+        },
+        [memberId]: {
+          id: memberId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.member',
+            resource: 'aws_iam_role',
+            name: 'member',
+          },
+        },
+        [intermediateId]: {
+          id: intermediateId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.intermediate',
+            resource: 'aws_iam_role',
+            name: 'intermediate',
+          },
+        },
+      },
+      edges: [
+        { id: 'edge-root-member' as never, from: rootId, to: memberId },
+        { id: 'edge-member-root' as never, from: memberId, to: rootId },
+        {
+          id: 'edge-root-intermediate' as never,
+          from: rootId,
+          to: intermediateId,
+        },
+      ],
+    };
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: { any: true },
+          membership: {
+            direction: 'both',
+            maxDepth: 2,
+            includeResources: ['aws_iam_role'],
+          },
+          relationships: {
+            maxDepth: 1,
+            minEvidence: 1,
+          },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+    const nodeMap = new Map(
+      adapter.nodeIds().map((id) => [id, adapter.getNodeAttributes(id)]),
+    );
+
+    expect([
+      ...helpers.expandMembership(
+        resolved,
+        rootId,
+        nodeMap,
+        adapter,
+        new Set([rootId]),
+      ),
+    ]).toEqual([rootId, memberId, intermediateId]);
+
+    const evidence = helpers.inferRelationships(
+      new Map([[projectionNodeId, new Set([rootId])]]),
+      new Map([
+        [
+          projectionNodeId,
+          { ...resolved, relationships: { maxDepth: 1, minEvidence: 1 } },
+        ],
+      ]),
+      new Map(),
+      adapter,
+    );
+    expect(evidence.size).toBe(0);
   });
 });

@@ -313,7 +313,7 @@ describe('resolveGraphPlugins', () => {
           },
           phases: [
             {
-              phase: 'cleanup',
+              phase: 'final',
               rules: [{ namedRuleSet: 'wrapper' }],
             },
           ],
@@ -334,7 +334,7 @@ describe('resolveGraphPlugins', () => {
 
     expect(result.phases).toEqual([
       {
-        phase: 'cleanup',
+        phase: 'final',
         rules: [{ namedRuleSet: 'test.phase_contrib.wrapper' }],
       },
     ]);
