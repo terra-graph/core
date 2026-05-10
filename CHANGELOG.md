@@ -1,3 +1,10 @@
+# [1.0.0-rc.21](https://github.com/terra-graph/core/compare/v1.0.0-rc.20...v1.0.0-rc.21) (2026-05-10)
+
+
+### Bug Fixes
+
+* better projection edge handling ([cffe2dd](https://github.com/terra-graph/core/commit/cffe2ddd8302e34f847befd529188a0c00a302ad))
+
 # [1.0.0-rc.20](https://github.com/terra-graph/core/compare/v1.0.0-rc.19...v1.0.0-rc.20) (2026-05-09)
 
 
