@@ -62,7 +62,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
   const buildAdapter = (graph: TgGraph) =>
     new GraphologyAdapter(new DirectedGraph()).withTgGraph(graph);
 
-  it('shoud reinterpret and reverse matching projection relationship edges', () => {
+  it('shoud reinterpret and reverse matching projection adjacency edges', () => {
     const edgeId = asEdgeId('ecs-depends-on-alb');
     const adapter = buildAdapter({
       schemaVersion: TG_SCHEMA_VERSION,
@@ -107,7 +107,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
           attributes: {
             projection: {
               layer: 'core',
-              relationship: {
+              adjacency: {
                 source: 'derived',
               },
             },
@@ -137,8 +137,6 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       },
       options: {
         relation: 'routes',
-        overwrite: true,
-        enforceDirection: true,
       },
     });
 
@@ -150,6 +148,30 @@ describe('ProjectionRelationshipSemantic.apply', () => {
     expect(
       result.getEdgeAttributes(edgeId)?.projection?.relationship?.relation,
     ).toBe('routes');
+    expect(rule.serialize()).toEqual({
+      id: 'ProjectionRelationshipSemantic',
+      config: {
+        edge: {
+          from: {
+            attr: {
+              key: 'projection.derivation.projectionName',
+              eq: 'aws.alb',
+            },
+          },
+          to: {
+            attr: {
+              key: 'projection.derivation.projectionName',
+              eq: 'aws.ecs',
+            },
+          },
+        },
+        options: {
+          relation: 'routes',
+          overwrite: true,
+          enforceDirection: true,
+        },
+      },
+    });
   });
 
   it('should cover non-matching and skip branches during application', () => {
@@ -206,6 +228,9 @@ describe('ProjectionRelationshipSemantic.apply', () => {
           attributes: {
             projection: {
               layer: 'core',
+              adjacency: {
+                source: 'derived',
+              },
               relationship: {
                 relation: 'existing',
                 source: 'derived',
@@ -220,6 +245,9 @@ describe('ProjectionRelationshipSemantic.apply', () => {
           attributes: {
             projection: {
               layer: 'core',
+              adjacency: {
+                source: 'derived',
+              },
               relationship: {
                 relation: 'different',
                 source: 'derived',
@@ -261,7 +289,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
     expect(result.edgeTarget(inEdgeId)).toBe(albId);
   });
 
-  it('should skip edges whose targets do not match or that are not projection relationships', () => {
+  it('should skip edges whose targets do not match or that are not projection semantics candidates', () => {
     const plainEdgeId = asEdgeId('plain-edge');
     const adapter = buildAdapter({
       schemaVersion: TG_SCHEMA_VERSION,
@@ -334,6 +362,106 @@ describe('ProjectionRelationshipSemantic.apply', () => {
     ).toBe(undefined);
   });
 
+  it('should return after out-edge assignment when enforceDirection is false', () => {
+    const edgeId = asEdgeId('alb-to-ecs');
+    const reverseEdgeId = asEdgeId('ecs-to-alb');
+    const adapter = buildAdapter({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [albId]: {
+          id: albId,
+          projection: {
+            layer: 'core',
+            address: 'aws.alb:public',
+            label: 'ALB public',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.alb',
+              groupKey: 'aws.alb:public',
+              rootNodeId: asNodeId('anchor-alb'),
+              anchors: [],
+            },
+          },
+        },
+        [ecsId]: {
+          id: ecsId,
+          projection: {
+            layer: 'core',
+            address: 'aws.ecs:service',
+            label: 'ECS service',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.ecs',
+              groupKey: 'aws.ecs:service',
+              rootNodeId: asNodeId('anchor-ecs'),
+              anchors: [],
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: edgeId,
+          from: albId,
+          to: ecsId,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+              },
+            },
+          },
+        },
+        {
+          id: reverseEdgeId,
+          from: ecsId,
+          to: albId,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+              },
+            },
+          },
+        },
+      ],
+    });
+    const albNode = adapter.getNodeAttributes(albId);
+    if (!albNode) {
+      throw new Error('Missing ALB projection node');
+    }
+
+    const rule = new ProjectionRelationshipSemantic({
+      edge: {
+        from: {
+          attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
+        },
+        to: {
+          attr: { key: 'projection.derivation.projectionName', eq: 'aws.ecs' },
+        },
+      },
+      options: {
+        relation: 'routes',
+        enforceDirection: false,
+      },
+    });
+
+    rule.match(albId, albNode, adapter);
+    const result = rule.apply(albId, albNode, adapter);
+
+    expect(
+      result.getEdgeAttributes(edgeId)?.projection?.relationship?.relation,
+    ).toBe('routes');
+    expect(result.edgeSource(reverseEdgeId)).toBe(ecsId);
+    expect(result.edgeTarget(reverseEdgeId)).toBe(albId);
+    expect(
+      result.getEdgeAttributes(reverseEdgeId)?.projection?.relationship,
+    ).toBe(undefined);
+  });
+
   it('should cover re-check mismatch and out-edge assignment branches', () => {
     const outEdgeId = asEdgeId('out-edge');
     const plainInEdgeId = asEdgeId('plain-in-edge');
@@ -380,7 +508,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
           attributes: {
             projection: {
               layer: 'core',
-              relationship: {
+              adjacency: {
                 source: 'derived',
               },
             },
@@ -465,7 +593,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
     expect(plainResult.edgeTarget(plainInEdgeId)).toBe(albId);
   });
 
-  it('should skip relationless plain edges on matching out-edges and non-matching in-edges', () => {
+  it('should skip plain non-adjacency edges on matching out-edges and non-matching in-edges', () => {
     const plainOutEdgeId = asEdgeId('plain-out');
     const wrongInEdgeId = asEdgeId('wrong-in');
     const otherId = asNodeId('other');
@@ -537,7 +665,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
           attributes: {
             projection: {
               layer: 'core',
-              relationship: {
+              adjacency: {
                 source: 'derived',
               },
             },

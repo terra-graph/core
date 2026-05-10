@@ -109,10 +109,10 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
     });
   });
 
-  it('should not derive semantic hints for projection relationship edges without a relation', () => {
+  it('should not derive semantic hints for neutral projection adjacency edges', () => {
     const sourceProjectionId = asNodeId('projection-source');
     const targetProjectionId = asNodeId('projection-target');
-    const relationshipEdgeId = asEdgeId('projection-relationship');
+    const adjacencyEdgeId = asEdgeId('projection-adjacency');
 
     const graph: TgGraph = {
       schemaVersion: TG_SCHEMA_VERSION,
@@ -137,13 +137,13 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
       },
       edges: [
         {
-          id: relationshipEdgeId,
+          id: adjacencyEdgeId,
           from: sourceProjectionId,
           to: targetProjectionId,
           attributes: {
             projection: {
               layer: 'core',
-              relationship: {
+              adjacency: {
                 source: 'derived',
               },
             },
@@ -168,7 +168,7 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
       updated = rule.apply(nodeId, node, updated);
     }
 
-    expect(updated.getEdgeAttributes(relationshipEdgeId)?.hints?.semantic).toBe(
+    expect(updated.getEdgeAttributes(adjacencyEdgeId)?.hints?.semantic).toBe(
       undefined,
     );
   });

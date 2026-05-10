@@ -108,17 +108,16 @@ export type TgProjectionMembership = {
   projectionName?: string;
 };
 
-export type TgProjectionEvidencePath = {
-  from: NodeId;
-  to: NodeId;
-  via?: NodeId[];
-};
-
 export type TgProjectionInferenceEvidence = {
   derivedBy: TgProjectionInferenceMethod;
   evidenceCount: number;
   shortestPathLength?: number;
-  samplePaths?: TgProjectionEvidencePath[];
+  viaResourceTypes?: string[];
+};
+
+export type TgProjectionAdjacency = {
+  source?: 'declared' | 'derived';
+  evidence?: TgProjectionInferenceEvidence;
 };
 
 export type TgProjectionRelationship = {
@@ -131,6 +130,7 @@ export type TgProjectionRelationship = {
 export type TgEdgeProjection = {
   layer: TgProjectionLayer;
   membership?: TgProjectionMembership;
+  adjacency?: TgProjectionAdjacency;
   relationship?: TgProjectionRelationship;
 };
 

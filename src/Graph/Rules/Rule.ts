@@ -1,6 +1,7 @@
+import { EdgeQuery } from '../Operations/Matchers/EdgeQuery/EdgeQuery.js';
 import { NodeQuery } from '../Operations/Matchers/NodeQuery/NodeQuery.js';
 import { AdapterOperations } from '../Operations/Operations.js';
-import { NodeId, TgNodeAttributes } from '../TgGraph.js';
+import { NodeId, TgEdgeAttributes, TgNodeAttributes } from '../TgGraph.js';
 import {
   EdgeRuleConfig,
   NodeRuleConfig,
@@ -14,7 +15,7 @@ type RuleClass<TConfig extends RuleConfig> = new (
   ...args: unknown[]
 ) => BaseRule<TConfig>;
 
-export type EdgeRuleMatcher = { from: NodeQuery; to: NodeQuery };
+export type EdgeRuleMatcher = EdgeQuery;
 
 export abstract class BaseRule<TConfig extends RuleConfig = RuleConfig> {
   private static registry: Record<string, RuleFactory> = {};
@@ -128,10 +129,7 @@ export abstract class EdgeRule extends BaseRule<EdgeRuleConfig> {
       throw new Error(`Rule '${new.target.name}' requires an edge config`);
     }
     super(config);
-    this.queryValue = {
-      from: NodeQuery.from(config.edge.from),
-      to: NodeQuery.from(config.edge.to),
-    };
+    this.queryValue = EdgeQuery.from(config.edge);
   }
 
   protected get query(): EdgeRuleMatcher {
@@ -143,6 +141,24 @@ export abstract class EdgeRule extends BaseRule<EdgeRuleConfig> {
     node: TgNodeAttributes,
     graph: AdapterOperations,
   ): boolean {
-    return this.query.from.match(nodeId, node, graph);
+    return this.query.matchSourceNode(nodeId, node, graph);
+  }
+
+  protected matchesEdge(
+    sourceId: NodeId,
+    source: TgNodeAttributes,
+    targetId: NodeId,
+    target: TgNodeAttributes,
+    edge: TgEdgeAttributes,
+    graph: AdapterOperations,
+  ): boolean {
+    return this.query.matchEdge(
+      sourceId,
+      source,
+      targetId,
+      target,
+      edge,
+      graph,
+    );
   }
 }

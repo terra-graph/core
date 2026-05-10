@@ -21,7 +21,6 @@ type TestResolvedProjection = {
   name: string;
   layer: string;
   membership: {
-    direction: 'in' | 'out' | 'both';
     maxDepth: number;
     includeResources: string[];
     excludeResources: string[];
@@ -34,14 +33,10 @@ type TestResolvedProjection = {
 };
 
 type RelationshipEvidence = {
-  projectionName: string;
   evidenceCount: number;
   shortestPathLength?: number;
-  samplePaths: Array<{
-    from: NodeId;
-    to: NodeId;
-    via?: NodeId[];
-  }>;
+  viaResourceTypes: string[];
+  evidenceKeys: Set<string>;
 };
 
 type ParseOptionsResult = {
@@ -50,7 +45,6 @@ type ParseOptionsResult = {
     layer?: string;
     rootNode: unknown;
     membership?: {
-      direction?: 'in' | 'out' | 'both';
       maxDepth?: number;
       includeResources?: string[];
       excludeResources?: string[];
@@ -65,11 +59,7 @@ type ParseOptionsResult = {
 
 type DeriveProjectionGraphTestHarness = {
   resolveProjections(): TestResolvedProjection[];
-  neighborIds(
-    direction: 'in' | 'out' | 'both',
-    nodeId: NodeId,
-    graph: AdapterOperations,
-  ): NodeId[];
+  neighborIds(nodeId: NodeId, graph: AdapterOperations): NodeId[];
   expandMembership(
     projection: TestResolvedProjection,
     rootNodeId: NodeId,
@@ -109,10 +99,10 @@ type DeriveProjectionGraphTestHarness = {
     existing: TgNodeProjectionAnchor[] | undefined,
     next: TgNodeProjectionAnchor,
   ): TgNodeProjectionAnchor[];
-  inferRelationships(
-    projectionMembers: Map<NodeId, Set<NodeId>>,
+  inferAdjacencies(
     projectionDefinitions: Map<NodeId, TestResolvedProjection>,
-    memberToProjections: Map<NodeId, Set<NodeId>>,
+    projectionRootNodes: Map<NodeId, NodeId>,
+    rootToProjections: Map<NodeId, Set<NodeId>>,
     graph: AdapterOperations,
   ): Map<string, RelationshipEvidence & { minEvidence: number }>;
 };
@@ -234,7 +224,6 @@ describe('DeriveProjectionGraph', () => {
               attr: { key: 'terraform.resource', eq: 'aws_apigatewayv2_api' },
             },
             membership: {
-              direction: 'out',
               maxDepth: 1,
               includeResources: ['aws_apigatewayv2_integration'],
             },
@@ -323,20 +312,13 @@ describe('DeriveProjectionGraph', () => {
     const projectedEdge = result.edges.find(
       (edge) => edge.from === apiProjectionId && edge.to === lambdaProjectionId,
     );
-    expect(projectedEdge?.attributes?.projection?.relationship).toEqual({
+    expect(projectedEdge?.attributes?.projection?.adjacency).toEqual({
       source: 'derived',
-      projectionName: 'aws.api_gateway',
       evidence: {
         derivedBy: 'anchor_path',
         evidenceCount: 1,
-        shortestPathLength: 1,
-        samplePaths: [
-          {
-            from: integration,
-            to: lambda,
-            via: [],
-          },
-        ],
+        shortestPathLength: 2,
+        viaResourceTypes: ['aws_apigatewayv2_integration'],
       },
     });
   });
@@ -637,7 +619,6 @@ describe('DeriveProjectionGraph', () => {
           name: 'aws.lambda',
           rootNode: { any: true },
           membership: {
-            direction: 'both',
             maxDepth: 1,
             includeResources: ['aws_iam_role'],
             excludeResources: ['aws_s3_bucket'],
@@ -659,22 +640,15 @@ describe('DeriveProjectionGraph', () => {
         .map((id) => [id, adapter.getNodeAttributes(id)]),
     );
 
-    expect(helpers.neighborIds('in', rootId, adapter)).toEqual([memberId]);
-    expect(helpers.neighborIds('out', rootId, adapter)).toEqual([
-      memberId,
-      otherRootId,
-      projectionNodeId,
-      excludedId,
-      missingResourceId,
-      includeMissId,
-      asNodeId('missing'),
-    ]);
-    expect(helpers.neighborIds('both', rootId, adapter)).toEqual(
+    expect(helpers.neighborIds(rootId, adapter)).toEqual(
       expect.arrayContaining([
         memberId,
         otherRootId,
         projectionNodeId,
         excludedId,
+        missingResourceId,
+        includeMissId,
+        asNodeId('missing'),
       ]),
     );
 
@@ -811,7 +785,6 @@ describe('DeriveProjectionGraph', () => {
             layer: 42,
             rootNode: { any: true },
             membership: {
-              direction: 7,
               maxDepth: 'bad',
               includeResources: ['ok', 1],
               excludeResources: [2, 'skip'],
@@ -831,7 +804,6 @@ describe('DeriveProjectionGraph', () => {
           layer: undefined,
           rootNode: { any: true },
           membership: {
-            direction: undefined,
             maxDepth: undefined,
             includeResources: ['ok'],
             excludeResources: ['skip'],
@@ -863,7 +835,6 @@ describe('DeriveProjectionGraph', () => {
           layer: undefined,
           rootNode: { any: true },
           membership: {
-            direction: undefined,
             maxDepth: undefined,
             includeResources: undefined,
             excludeResources: undefined,
@@ -881,7 +852,6 @@ describe('DeriveProjectionGraph', () => {
             layer: 'core',
             rootNode: { any: true },
             membership: {
-              direction: 'out',
               maxDepth: 2,
               includeResources: ['aws_lambda_function'],
             },
@@ -899,7 +869,6 @@ describe('DeriveProjectionGraph', () => {
           layer: 'core',
           rootNode: { any: true },
           membership: {
-            direction: 'out',
             maxDepth: 2,
             includeResources: ['aws_lambda_function'],
             excludeResources: undefined,
@@ -958,6 +927,106 @@ describe('DeriveProjectionGraph', () => {
         [asNodeId('dup-no-address-b'), 'same'],
       ]),
     );
+  });
+
+  it('should support wildcard membership resource filters', () => {
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.test',
+          rootNode: { any: true },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+
+    const apiGatewayV2Integration: TgNodeAttributes = {
+      id: asNodeId('api-gateway-v2-integration'),
+      terraform: {
+        kind: 'resource',
+        address: 'aws_apigatewayv2_integration.example',
+        resource: 'aws_apigatewayv2_integration',
+        name: 'example',
+      },
+    };
+    const apiGatewayStage: TgNodeAttributes = {
+      id: asNodeId('api-gateway-stage'),
+      terraform: {
+        kind: 'resource',
+        address: 'aws_api_gateway_stage.example',
+        resource: 'aws_api_gateway_stage',
+        name: 'example',
+      },
+    };
+    const lambdaPermission: TgNodeAttributes = {
+      id: asNodeId('lambda-permission'),
+      terraform: {
+        kind: 'resource',
+        address: 'aws_lambda_permission.example',
+        resource: 'aws_lambda_permission',
+        name: 'example',
+      },
+    };
+    const unrelated: TgNodeAttributes = {
+      id: asNodeId('unrelated'),
+      terraform: {
+        kind: 'resource',
+        address: 'aws_sns_topic.example',
+        resource: 'aws_sns_topic',
+        name: 'example',
+      },
+    };
+
+    expect(
+      helpers.shouldIncludeMember(apiGatewayV2Integration, {
+        ...resolved.membership,
+        includeResources: ['aws_apigatewayv2_*'],
+      }),
+    ).toBe(true);
+    expect(
+      helpers.shouldIncludeMember(apiGatewayStage, {
+        ...resolved.membership,
+        includeResources: ['aws_api_gateway_stage'],
+      }),
+    ).toBe(true);
+    expect(
+      helpers.shouldIncludeMember(apiGatewayStage, {
+        ...resolved.membership,
+        includeResources: ['aws_api_gateway_*'],
+      }),
+    ).toBe(true);
+    expect(
+      helpers.shouldIncludeMember(lambdaPermission, {
+        ...resolved.membership,
+        includeResources: ['aws_lambda_*'],
+        excludeResources: ['aws_lambda_permission'],
+      }),
+    ).toBe(false);
+    expect(
+      helpers.shouldIncludeMember(apiGatewayV2Integration, {
+        ...resolved.membership,
+        includeResources: ['aws_api_gateway_*', 'aws_apigatewayv2_*'],
+      }),
+    ).toBe(true);
+    expect(
+      helpers.shouldIncludeMember(unrelated, {
+        ...resolved.membership,
+        includeResources: ['aws_api_gateway_*', 'aws_apigatewayv2_*'],
+      }),
+    ).toBe(false);
+    expect(
+      helpers.shouldIncludeMember(apiGatewayStage, {
+        ...resolved.membership,
+        excludeResources: ['aws_api_gateway_*'],
+      }),
+    ).toBe(false);
+    expect(
+      helpers.shouldIncludeMember(apiGatewayStage, {
+        ...resolved.membership,
+        includeResources: ['aws_api_gateway_stage*'],
+      }),
+    ).toBe(true);
   });
 
   it('should cover relationship inference branches and skip low-evidence derived edges', () => {
@@ -1054,10 +1123,6 @@ describe('DeriveProjectionGraph', () => {
     });
     const helpers = asHarness(rule);
     const resolved = helpers.resolveProjections()[0];
-    const projectionMembers = new Map([
-      [sourceProjectionId, new Set([memberA, memberB, memberC])],
-      [asNodeId('projection-skip'), new Set([deadEnd])],
-    ]);
     const projectionDefinitions = new Map([
       [sourceProjectionId, resolved],
       [
@@ -1065,29 +1130,30 @@ describe('DeriveProjectionGraph', () => {
         { ...resolved, relationships: { maxDepth: 1, minEvidence: 1 } },
       ],
     ]);
-    const memberToProjections = new Map([
+    const projectionRootNodes = new Map([
+      [sourceProjectionId, memberA],
+      [asNodeId('projection-depth-limited'), deadEnd],
+    ]);
+    const rootToProjections = new Map([
       [targetMember, new Set([targetProjectionId])],
       [memberA, new Set([sourceProjectionId])],
-      [memberB, new Set([sourceProjectionId])],
-      [memberC, new Set([sourceProjectionId])],
       [deadEnd, new Set([asNodeId('projection-depth-limited')])],
     ]);
 
-    const evidence = helpers.inferRelationships(
-      projectionMembers,
+    const evidence = helpers.inferAdjacencies(
       projectionDefinitions,
-      memberToProjections,
+      projectionRootNodes,
+      rootToProjections,
       adapter,
     );
     const targetEvidence = evidence.get(
       `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
     );
     expect(targetEvidence).toMatchObject({
-      projectionName: 'source',
-      evidenceCount: 4,
+      evidenceCount: 2,
       shortestPathLength: 1,
+      viaResourceTypes: ['aws_iam_role'],
     });
-    expect(targetEvidence?.samplePaths).toHaveLength(3);
 
     const applyRule = createRule({
       projections: [
@@ -1172,7 +1238,6 @@ describe('DeriveProjectionGraph', () => {
           name: 'aws.lambda',
           rootNode: { any: true },
           membership: {
-            direction: 'both',
             maxDepth: 2,
             includeResources: ['aws_iam_role'],
           },
@@ -1199,17 +1264,212 @@ describe('DeriveProjectionGraph', () => {
       ),
     ]).toEqual([rootId, memberId, intermediateId]);
 
-    const evidence = helpers.inferRelationships(
-      new Map([[projectionNodeId, new Set([rootId])]]),
+    const evidence = helpers.inferAdjacencies(
       new Map([
         [
           projectionNodeId,
           { ...resolved, relationships: { maxDepth: 1, minEvidence: 1 } },
         ],
       ]),
+      new Map([[projectionNodeId, rootId]]),
       new Map(),
       adapter,
     );
     expect(evidence.size).toBe(0);
+
+    expect(
+      helpers.inferAdjacencies(
+        new Map(),
+        new Map([[asNodeId('missing-projection'), rootId]]),
+        new Map(),
+        adapter,
+      ).size,
+    ).toBe(0);
+    expect(
+      helpers.inferAdjacencies(
+        new Map([
+          [
+            projectionNodeId,
+            { ...resolved, relationships: { maxDepth: 0, minEvidence: 1 } },
+          ],
+        ]),
+        new Map([[projectionNodeId, rootId]]),
+        new Map(),
+        adapter,
+      ).size,
+    ).toBe(0);
+  });
+
+  it('should skip missing or disabled projections and cap recorded adjacency sample paths', () => {
+    const sourceRootId = asNodeId('source-root');
+    const pathOneId = asNodeId('path-one');
+    const pathTwoId = asNodeId('path-two');
+    const pathThreeId = asNodeId('path-three');
+    const pathFourId = asNodeId('path-four');
+    const targetRootId = asNodeId('target-root');
+    const sourceProjectionId = asNodeId('projection-source');
+    const targetProjectionId = asNodeId('projection-target');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [sourceRootId]: {
+          id: sourceRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.source',
+            resource: 'aws_lambda_function',
+            name: 'source',
+          },
+        },
+        [pathOneId]: {
+          id: pathOneId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.path_one',
+            resource: 'aws_iam_role',
+            name: 'path_one',
+          },
+        },
+        [pathTwoId]: {
+          id: pathTwoId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.path_two',
+            resource: 'aws_iam_role',
+            name: 'path_two',
+          },
+        },
+        [pathThreeId]: {
+          id: pathThreeId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.path_three',
+            resource: 'aws_iam_role',
+            name: 'path_three',
+          },
+        },
+        [pathFourId]: {
+          id: pathFourId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.path_four',
+            resource: 'aws_iam_role',
+            name: 'path_four',
+          },
+        },
+        [targetRootId]: {
+          id: targetRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.target',
+            resource: 'aws_lambda_function',
+            name: 'target',
+          },
+        },
+      },
+      edges: [
+        {
+          id: 'edge-source-path-one' as never,
+          from: sourceRootId,
+          to: pathOneId,
+        },
+        {
+          id: 'edge-path-one-target' as never,
+          from: pathOneId,
+          to: targetRootId,
+        },
+        {
+          id: 'edge-source-path-two' as never,
+          from: sourceRootId,
+          to: pathTwoId,
+        },
+        {
+          id: 'edge-path-two-target' as never,
+          from: pathTwoId,
+          to: targetRootId,
+        },
+        {
+          id: 'edge-source-path-three' as never,
+          from: sourceRootId,
+          to: pathThreeId,
+        },
+        {
+          id: 'edge-path-three-target' as never,
+          from: pathThreeId,
+          to: targetRootId,
+        },
+        {
+          id: 'edge-source-path-four' as never,
+          from: sourceRootId,
+          to: pathFourId,
+        },
+        {
+          id: 'edge-path-four-target' as never,
+          from: pathFourId,
+          to: targetRootId,
+        },
+      ],
+    };
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: { any: true },
+          relationships: {
+            maxDepth: 2,
+            minEvidence: 1,
+          },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+
+    expect(
+      helpers.inferAdjacencies(
+        new Map(),
+        new Map([[sourceProjectionId, sourceRootId]]),
+        new Map(),
+        adapter,
+      ).size,
+    ).toBe(0);
+    expect(
+      helpers.inferAdjacencies(
+        new Map([
+          [
+            sourceProjectionId,
+            { ...resolved, relationships: { maxDepth: 0, minEvidence: 1 } },
+          ],
+        ]),
+        new Map([[sourceProjectionId, sourceRootId]]),
+        new Map(),
+        adapter,
+      ).size,
+    ).toBe(0);
+
+    const evidence = helpers.inferAdjacencies(
+      new Map([
+        [sourceProjectionId, resolved],
+        [targetProjectionId, resolved],
+      ]),
+      new Map([
+        [sourceProjectionId, sourceRootId],
+        [targetProjectionId, targetRootId],
+      ]),
+      new Map([
+        [sourceRootId, new Set([sourceProjectionId])],
+        [targetRootId, new Set([targetProjectionId])],
+      ]),
+      adapter,
+    );
+    const adjacencyEvidence = evidence.get(
+      `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
+    );
+
+    expect(adjacencyEvidence?.evidenceCount).toBe(4);
+    expect(adjacencyEvidence?.viaResourceTypes).toEqual(['aws_iam_role']);
   });
 });

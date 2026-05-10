@@ -18,10 +18,7 @@ import {
 import { NodeRule } from '../Rule.js';
 import { NodeRuleConfig } from '../RuleConfig.js';
 
-type ProjectionDirection = 'in' | 'out' | 'both';
-
 type ProjectionMembershipOptions = {
-  direction?: ProjectionDirection;
   maxDepth?: number;
   includeResources?: string[];
   excludeResources?: string[];
@@ -59,11 +56,13 @@ type ResolvedProjectionDefinition = ProjectionDefinition & {
 };
 
 type RelationshipEvidence = {
-  projectionName: string;
   layer: TgProjectionLayer;
   evidenceCount: number;
   shortestPathLength?: number;
-  samplePaths: NonNullable<TgProjectionInferenceEvidence['samplePaths']>;
+  viaResourceTypes: NonNullable<
+    TgProjectionInferenceEvidence['viaResourceTypes']
+  >;
+  evidenceKeys: Set<string>;
 };
 
 type QueueItem = {
@@ -72,8 +71,8 @@ type QueueItem = {
   path: NodeId[];
 };
 
-const MAX_SAMPLE_PATHS = 3;
 const PROJECTION_PAIR_KEY_DELIMITER = '->';
+const WILDCARD_SEGMENT_PATTERN = '.*';
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -172,12 +171,13 @@ export class DeriveProjectionGraph extends NodeRule {
     }
 
     let updated = graph;
-    const projectionMembers = new Map<NodeId, Set<NodeId>>();
     const projectionDefinitions = new Map<
       NodeId,
       ResolvedProjectionDefinition
     >();
+    const projectionRootNodes = new Map<NodeId, NodeId>();
     const memberToProjections = new Map<NodeId, Set<NodeId>>();
+    const rootToProjections = new Map<NodeId, Set<NodeId>>();
 
     for (const projection of resolved) {
       for (const rootNodeId of rootNodeIdsByProjection.get(
@@ -229,12 +229,13 @@ export class DeriveProjectionGraph extends NodeRule {
         });
 
         projectionDefinitions.set(projectionNodeId, projection);
-        this.addMember(
-          projectionMembers,
+        projectionRootNodes.set(projectionNodeId, rootNodeId);
+        this.addProjectionMembership(
           memberToProjections,
           projectionNodeId,
           rootNodeId,
         );
+        this.addProjectionRoot(rootToProjections, projectionNodeId, rootNodeId);
 
         updated = updated.setEdge(
           edgeIdFrom(
@@ -260,8 +261,7 @@ export class DeriveProjectionGraph extends NodeRule {
           if (memberId === rootNodeId) {
             continue;
           }
-          this.addMember(
-            projectionMembers,
+          this.addProjectionMembership(
             memberToProjections,
             projectionNodeId,
             memberId,
@@ -283,33 +283,32 @@ export class DeriveProjectionGraph extends NodeRule {
       }
     }
 
-    const relationshipEvidence = this.inferRelationships(
-      projectionMembers,
+    const adjacencyEvidence = this.inferAdjacencies(
       projectionDefinitions,
-      memberToProjections,
+      projectionRootNodes,
+      rootToProjections,
       graph,
     );
 
-    for (const [key, evidence] of relationshipEvidence.entries()) {
+    for (const [key, evidence] of adjacencyEvidence.entries()) {
       const [from, to] = this.parseProjectionPairKey(key);
       if (evidence.evidenceCount < evidence.minEvidence) {
         continue;
       }
       updated = updated.setEdge(
-        edgeIdFrom(from, to, `projection:${evidence.layer}:relationship`),
+        edgeIdFrom(from, to, `projection:${evidence.layer}:adjacency`),
         from,
         to,
         {
           projection: {
             layer: evidence.layer,
-            relationship: {
+            adjacency: {
               source: 'derived',
-              projectionName: evidence.projectionName,
               evidence: {
                 derivedBy: DefaultProjectionInferenceMethods.AnchorPath,
                 evidenceCount: evidence.evidenceCount,
                 shortestPathLength: evidence.shortestPathLength,
-                samplePaths: evidence.samplePaths,
+                viaResourceTypes: evidence.viaResourceTypes,
               },
             },
           },
@@ -325,7 +324,6 @@ export class DeriveProjectionGraph extends NodeRule {
       ...projection,
       layer: projection.layer ?? DefaultProjectionLayers.Core,
       membership: {
-        direction: projection.membership?.direction ?? 'both',
         maxDepth: projection.membership?.maxDepth ?? 0,
         includeResources: projection.membership?.includeResources ?? [],
         excludeResources: projection.membership?.excludeResources ?? [],
@@ -364,11 +362,7 @@ export class DeriveProjectionGraph extends NodeRule {
         continue;
       }
 
-      for (const neighbor of this.neighborIds(
-        projection.membership.direction,
-        current.nodeId,
-        graph,
-      )) {
+      for (const neighbor of this.neighborIds(current.nodeId, graph)) {
         if (visited.has(neighbor)) {
           continue;
         }
@@ -405,22 +399,50 @@ export class DeriveProjectionGraph extends NodeRule {
     if (!resource) {
       return false;
     }
-    if (membership.excludeResources.includes(resource)) {
+    if (this.matchesAnyResourcePattern(resource, membership.excludeResources)) {
       return false;
     }
     if (
       membership.includeResources.length > 0 &&
-      !membership.includeResources.includes(resource)
+      !this.matchesAnyResourcePattern(resource, membership.includeResources)
     ) {
       return false;
     }
     return true;
   }
 
-  private inferRelationships(
-    projectionMembers: Map<NodeId, Set<NodeId>>,
+  private matchesAnyResourcePattern(
+    resource: string,
+    patterns: string[],
+  ): boolean {
+    return patterns.some((pattern) =>
+      this.matchesResourcePattern(resource, pattern),
+    );
+  }
+
+  private matchesResourcePattern(resource: string, pattern: string): boolean {
+    if (!pattern.includes('*')) {
+      return resource === pattern;
+    }
+
+    const regex = new RegExp(
+      `^${pattern
+        .split('*')
+        .map((segment) => this.escapeRegexPattern(segment))
+        .join(WILDCARD_SEGMENT_PATTERN)}$`,
+    );
+
+    return regex.test(resource);
+  }
+
+  private escapeRegexPattern(value: string): string {
+    return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private inferAdjacencies(
     projectionDefinitions: Map<NodeId, ResolvedProjectionDefinition>,
-    memberToProjections: Map<NodeId, Set<NodeId>>,
+    projectionRootNodes: Map<NodeId, NodeId>,
+    rootToProjections: Map<NodeId, Set<NodeId>>,
     graph: AdapterOperations,
   ): Map<string, RelationshipEvidence & { minEvidence: number }> {
     const evidence = new Map<
@@ -428,21 +450,23 @@ export class DeriveProjectionGraph extends NodeRule {
       RelationshipEvidence & { minEvidence: number }
     >();
 
-    for (const [sourceProjectionId, members] of projectionMembers.entries()) {
+    for (const [
+      sourceProjectionId,
+      sourceRootNodeId,
+    ] of projectionRootNodes.entries()) {
       const projection = projectionDefinitions.get(sourceProjectionId);
       if (!projection || projection.relationships.maxDepth <= 0) {
         continue;
       }
 
-      const visitedDepth = new Map<NodeId, number>();
-      const queue: QueueItem[] = [...members].map((memberId) => ({
-        current: memberId,
-        depth: 0,
-        path: [memberId],
-      }));
-      for (const memberId of members) {
-        visitedDepth.set(memberId, 0);
-      }
+      const visitedDepth = new Map<NodeId, number>([[sourceRootNodeId, 0]]);
+      const queue: QueueItem[] = [
+        {
+          current: sourceRootNodeId,
+          depth: 0,
+          path: [sourceRootNodeId],
+        },
+      ];
 
       while (queue.length > 0) {
         const current = queue.shift() as QueueItem;
@@ -450,43 +474,49 @@ export class DeriveProjectionGraph extends NodeRule {
           continue;
         }
 
-        for (const edgeId of graph.outEdges(current.current)) {
-          const next = graph.edgeTarget(edgeId);
+        for (const next of this.neighborIds(current.current, graph)) {
           const nextDepth = current.depth + 1;
-          const nextMemberships = memberToProjections.get(next) ?? new Set();
-          const otherProjectionIds = [...nextMemberships].filter(
+          const nextRootProjections = rootToProjections.get(next) ?? new Set();
+          const otherProjectionIds = [...nextRootProjections].filter(
             (projectionNodeId) => projectionNodeId !== sourceProjectionId,
           );
 
           if (otherProjectionIds.length > 0) {
             for (const targetProjectionId of otherProjectionIds) {
-              const key = this.buildProjectionPairKey(
+              const [from, to] = this.canonicalizeProjectionPair(
                 sourceProjectionId,
                 targetProjectionId,
               );
+              const key = this.buildProjectionPairKey(from, to);
+              const fullPath = [...current.path, next];
+              const evidenceKey = this.buildEvidencePathKey(fullPath);
               const existing = evidence.get(key) ?? {
-                projectionName: projection.name,
                 layer: projection.layer,
                 evidenceCount: 0,
                 shortestPathLength: undefined,
-                samplePaths: [],
+                viaResourceTypes: [],
+                evidenceKeys: new Set<string>(),
                 minEvidence: projection.relationships.minEvidence,
               };
+              if (existing.evidenceKeys.has(evidenceKey)) {
+                continue;
+              }
+
+              existing.evidenceKeys.add(evidenceKey);
               existing.evidenceCount += 1;
               existing.shortestPathLength =
                 existing.shortestPathLength === undefined
                   ? nextDepth
                   : Math.min(existing.shortestPathLength, nextDepth);
-              const samplePaths = existing.samplePaths;
-              if (samplePaths.length < MAX_SAMPLE_PATHS) {
-                const fullPath = [...current.path, next];
-                samplePaths.push({
-                  from: fullPath[0] as NodeId,
-                  to: next,
-                  via: fullPath.slice(1, -1),
-                });
-                existing.samplePaths = samplePaths;
-              }
+              existing.minEvidence = Math.min(
+                existing.minEvidence,
+                projection.relationships.minEvidence,
+              );
+              this.addViaResourceTypes(
+                existing.viaResourceTypes,
+                fullPath.slice(1, -1),
+                graph,
+              );
               evidence.set(key, existing);
             }
             continue;
@@ -509,6 +539,37 @@ export class DeriveProjectionGraph extends NodeRule {
     return evidence;
   }
 
+  private canonicalizeProjectionPair(
+    first: NodeId,
+    second: NodeId,
+  ): [NodeId, NodeId] {
+    return String(first) <= String(second) ? [first, second] : [second, first];
+  }
+
+  private buildEvidencePathKey(path: NodeId[]): string {
+    const forward = path.map(String).join(PROJECTION_PAIR_KEY_DELIMITER);
+    const reverse = [...path]
+      .reverse()
+      .map(String)
+      .join(PROJECTION_PAIR_KEY_DELIMITER);
+
+    return forward <= reverse ? forward : reverse;
+  }
+
+  private addViaResourceTypes(
+    target: string[],
+    viaNodeIds: NodeId[],
+    graph: AdapterOperations,
+  ): void {
+    for (const viaNodeId of viaNodeIds) {
+      const resource = graph.getNodeAttributes(viaNodeId)?.terraform?.resource;
+      if (!resource || target.includes(resource)) {
+        continue;
+      }
+      target.push(resource);
+    }
+  }
+
   private buildProjectionPairKey(from: NodeId, to: NodeId): string {
     return `${String(from)}${PROJECTION_PAIR_KEY_DELIMITER}${String(to)}`;
   }
@@ -526,18 +587,7 @@ export class DeriveProjectionGraph extends NodeRule {
     return [from, to];
   }
 
-  private neighborIds(
-    direction: ProjectionDirection,
-    nodeId: NodeId,
-    graph: AdapterOperations,
-  ): NodeId[] {
-    if (direction === 'in') {
-      return graph.inEdges(nodeId).map((edgeId) => graph.edgeSource(edgeId));
-    }
-    if (direction === 'out') {
-      return graph.outEdges(nodeId).map((edgeId) => graph.edgeTarget(edgeId));
-    }
-
+  private neighborIds(nodeId: NodeId, graph: AdapterOperations): NodeId[] {
     const combined = new Set<NodeId>([
       ...graph.inEdges(nodeId).map((edgeId) => graph.edgeSource(edgeId)),
       ...graph.outEdges(nodeId).map((edgeId) => graph.edgeTarget(edgeId)),
@@ -687,20 +737,24 @@ export class DeriveProjectionGraph extends NodeRule {
     return labels;
   }
 
-  private addMember(
-    projectionMembers: Map<NodeId, Set<NodeId>>,
+  private addProjectionMembership(
     memberToProjections: Map<NodeId, Set<NodeId>>,
     projectionNodeId: NodeId,
     memberId: NodeId,
   ) {
-    const members =
-      projectionMembers.get(projectionNodeId) ?? new Set<NodeId>();
-    members.add(memberId);
-    projectionMembers.set(projectionNodeId, members);
-
     const projections = memberToProjections.get(memberId) ?? new Set<NodeId>();
     projections.add(projectionNodeId);
     memberToProjections.set(memberId, projections);
+  }
+
+  private addProjectionRoot(
+    rootToProjections: Map<NodeId, Set<NodeId>>,
+    projectionNodeId: NodeId,
+    rootNodeId: NodeId,
+  ) {
+    const projections = rootToProjections.get(rootNodeId) ?? new Set<NodeId>();
+    projections.add(projectionNodeId);
+    rootToProjections.set(rootNodeId, projections);
   }
 
   private buildMembershipEdgeAttributes(
@@ -764,10 +818,6 @@ export class DeriveProjectionGraph extends NodeRule {
         rootNode: entry.rootNode as ReturnType<NodeQuery['getDsl']>,
         membership: isObjectRecord(entry.membership)
           ? {
-              direction:
-                typeof entry.membership.direction === 'string'
-                  ? (entry.membership.direction as ProjectionDirection)
-                  : undefined,
               maxDepth:
                 typeof entry.membership.maxDepth === 'number'
                   ? entry.membership.maxDepth

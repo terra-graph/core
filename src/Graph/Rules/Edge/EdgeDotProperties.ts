@@ -28,9 +28,7 @@ export class EdgeDotProperties extends EdgeRule {
     }
 
     let updated = graph;
-
-    const { from, to } = this.query;
-    if (!from.match(nodeId, node, updated)) {
+    if (!this.query.matchSourceNode(nodeId, node, updated)) {
       return updated;
     }
 
@@ -41,11 +39,14 @@ export class EdgeDotProperties extends EdgeRule {
     for (const edgeId of edges) {
       const targetId = updated.edgeTarget(edgeId);
       const target = updated.getNodeAttributes(targetId);
-      if (!target || !to.match(targetId, target, updated)) {
+      if (!target) {
         continue;
       }
 
       const current = updated.getEdgeAttributes(edgeId);
+      if (!this.matchesEdge(nodeId, node, targetId, target, current, updated)) {
+        continue;
+      }
       updated = updated.setEdge(edgeId, nodeId, targetId, {
         ...current,
         adapter: {

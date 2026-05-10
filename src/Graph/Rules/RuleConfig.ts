@@ -1,3 +1,4 @@
+import { EdgeQueryDsl } from '../Operations/Matchers/EdgeQuery/QuerySchema.js';
 import { QueryDsl } from '../Operations/Matchers/NodeQuery/QuerySchema.js';
 
 export type NodeRuleConfig = {
@@ -5,7 +6,7 @@ export type NodeRuleConfig = {
   options?: Record<string, unknown>;
 };
 
-export type EdgeRuleQuery = { from: QueryDsl; to: QueryDsl };
+export type EdgeRuleQuery = EdgeQueryDsl;
 
 export type EdgeRuleConfig = {
   edge: EdgeRuleQuery;

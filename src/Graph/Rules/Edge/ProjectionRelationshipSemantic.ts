@@ -14,20 +14,44 @@ type ProjectionRelationshipSemanticOptions = {
   enforceDirection?: boolean;
 };
 
-const hasProjectionRelationship = (
+type NormalizedProjectionRelationshipSemanticOptions = {
+  relation: TgProjectionRelationshipRelation;
+  overwrite: boolean;
+  enforceDirection: boolean;
+};
+
+const hasProjectionSemanticsCandidate = (
   edge: TgEdgeAttributes,
 ): edge is TgEdgeAttributes & {
   projection: NonNullable<TgEdgeAttributes['projection']> & {
-    relationship: NonNullable<
+    adjacency?: NonNullable<
+      NonNullable<TgEdgeAttributes['projection']>['adjacency']
+    >;
+    relationship?: NonNullable<
       NonNullable<TgEdgeAttributes['projection']>['relationship']
     >;
   };
-} => edge.projection?.relationship !== undefined;
+} =>
+  edge.projection?.adjacency !== undefined ||
+  edge.projection?.relationship !== undefined;
 
 const isNonEmptyRelation = (
   value: unknown,
 ): value is TgProjectionRelationshipRelation =>
   typeof value === 'string' && value.trim().length > 0;
+
+const buildRelationshipAttributes = (
+  edge: TgEdgeAttributes,
+  relation: TgProjectionRelationshipRelation,
+) => ({
+  ...edge.projection?.relationship,
+  relation,
+  source:
+    edge.projection?.relationship?.source ?? edge.projection?.adjacency?.source,
+  evidence:
+    edge.projection?.relationship?.evidence ??
+    edge.projection?.adjacency?.evidence,
+});
 
 export class ProjectionRelationshipSemantic extends EdgeRule {
   constructor(config: EdgeRuleConfig) {
@@ -63,7 +87,14 @@ export class ProjectionRelationshipSemantic extends EdgeRule {
       );
     }
 
-    super(config);
+    super({
+      ...config,
+      options: {
+        ...options,
+        overwrite: options.overwrite ?? true,
+        enforceDirection: options.enforceDirection ?? true,
+      },
+    });
   }
 
   public override apply(
@@ -82,9 +113,9 @@ export class ProjectionRelationshipSemantic extends EdgeRule {
     }
 
     const options = this.config
-      .options as ProjectionRelationshipSemanticOptions;
-    const shouldOverwrite = options.overwrite ?? false;
-    const shouldEnforceDirection = options.enforceDirection ?? false;
+      .options as NormalizedProjectionRelationshipSemanticOptions;
+    const shouldOverwrite = options.overwrite;
+    const shouldEnforceDirection = options.enforceDirection;
 
     for (const edgeId of updated.outEdges(nodeId)) {
       const targetId = updated.edgeTarget(edgeId);
@@ -94,10 +125,10 @@ export class ProjectionRelationshipSemantic extends EdgeRule {
       }
 
       const current = updated.getEdgeAttributes(edgeId);
-      if (!hasProjectionRelationship(current)) {
+      if (!hasProjectionSemanticsCandidate(current)) {
         continue;
       }
-      const currentRelation = current.projection.relationship.relation;
+      const currentRelation = current.projection.relationship?.relation;
       if (!shouldOverwrite && isNonEmptyRelation(currentRelation)) {
         continue;
       }
@@ -106,48 +137,43 @@ export class ProjectionRelationshipSemantic extends EdgeRule {
         ...current,
         projection: {
           ...current.projection,
-          relationship: {
-            ...current.projection.relationship,
-            relation: options.relation,
-          },
+          relationship: buildRelationshipAttributes(current, options.relation),
         },
       });
     }
 
-    if (!shouldEnforceDirection) {
-      return updated;
-    }
+    if (shouldEnforceDirection) {
+      for (const edgeId of updated.inEdges(nodeId)) {
+        const sourceId = updated.edgeSource(edgeId);
+        const source = updated.getNodeAttributes(sourceId);
+        if (!source || !to.match(sourceId, source, updated)) {
+          continue;
+        }
 
-    for (const edgeId of updated.inEdges(nodeId)) {
-      const sourceId = updated.edgeSource(edgeId);
-      const source = updated.getNodeAttributes(sourceId);
-      if (!source || !to.match(sourceId, source, updated)) {
-        continue;
-      }
+        const current = updated.getEdgeAttributes(edgeId);
+        if (!hasProjectionSemanticsCandidate(current)) {
+          continue;
+        }
+        const currentRelation = current.projection.relationship?.relation;
+        if (
+          !shouldOverwrite &&
+          isNonEmptyRelation(currentRelation) &&
+          currentRelation !== options.relation
+        ) {
+          continue;
+        }
 
-      const current = updated.getEdgeAttributes(edgeId);
-      if (!hasProjectionRelationship(current)) {
-        continue;
-      }
-      const currentRelation = current.projection.relationship.relation;
-      if (
-        !shouldOverwrite &&
-        isNonEmptyRelation(currentRelation) &&
-        currentRelation !== options.relation
-      ) {
-        continue;
-      }
-
-      updated = updated.removeEdge(edgeId).setEdge(edgeId, nodeId, sourceId, {
-        ...current,
-        projection: {
-          ...current.projection,
-          relationship: {
-            ...current.projection.relationship,
-            relation: options.relation,
+        updated = updated.removeEdge(edgeId).setEdge(edgeId, nodeId, sourceId, {
+          ...current,
+          projection: {
+            ...current.projection,
+            relationship: buildRelationshipAttributes(
+              current,
+              options.relation,
+            ),
           },
-        },
-      });
+        });
+      }
     }
 
     return updated;
