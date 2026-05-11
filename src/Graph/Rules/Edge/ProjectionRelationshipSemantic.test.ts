@@ -805,4 +805,116 @@ describe('ProjectionRelationshipSemantic.apply', () => {
     expect(result.edgeSource(wrongInEdgeId)).toBe(otherId);
     expect(result.edgeTarget(wrongInEdgeId)).toBe(albId);
   });
+
+  it('should skip edges whose target or source node attributes are unavailable', () => {
+    const outEdgeId = asEdgeId('missing-target');
+    const inEdgeId = asEdgeId('missing-source');
+    const otherId = asNodeId('other');
+    const baseAdapter = buildAdapter({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [albId]: {
+          id: albId,
+          projection: {
+            layer: 'core',
+            address: 'aws.alb:public',
+            label: 'ALB public',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.alb',
+              groupKey: 'aws.alb:public',
+              rootNodeId: asNodeId('anchor-alb'),
+              anchors: [],
+            },
+          },
+        },
+        [ecsId]: {
+          id: ecsId,
+          projection: {
+            layer: 'core',
+            address: 'aws.ecs:service',
+            label: 'ECS service',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.ecs',
+              groupKey: 'aws.ecs:service',
+              rootNodeId: asNodeId('anchor-ecs'),
+              anchors: [],
+            },
+          },
+        },
+        [otherId]: {
+          id: otherId,
+          projection: {
+            layer: 'core',
+            address: 'aws.ecs:other',
+            label: 'Other',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.ecs',
+              groupKey: 'aws.ecs:other',
+              rootNodeId: asNodeId('anchor-other'),
+              anchors: [],
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: outEdgeId,
+          from: albId,
+          to: ecsId,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+              },
+            },
+          },
+        },
+        {
+          id: inEdgeId,
+          from: otherId,
+          to: albId,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+              },
+            },
+          },
+        },
+      ],
+    });
+    const albNode = baseAdapter.getNodeAttributes(albId);
+    if (!albNode) {
+      throw new Error('Missing ALB projection node');
+    }
+
+    const adapter = Object.create(baseAdapter) as GraphologyAdapter;
+    adapter.getNodeAttributes = (nodeId) => {
+      if (nodeId === ecsId || nodeId === otherId) {
+        return undefined;
+      }
+      return baseAdapter.getNodeAttributes(nodeId);
+    };
+
+    const rule = new ProjectionRelationshipSemantic({
+      edge: {
+        from: {
+          attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
+        },
+        to: {
+          attr: { key: 'projection.derivation.projectionName', eq: 'aws.ecs' },
+        },
+      },
+      options: { relation: 'routes' },
+    });
+    rule.match(albId, albNode, adapter);
+
+    expect(rule.apply(albId, albNode, adapter)).toBe(adapter);
+  });
 });
