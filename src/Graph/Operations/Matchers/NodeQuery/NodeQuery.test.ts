@@ -264,6 +264,40 @@ describe('NodeQuery.match', () => {
     ).toBe(true);
   });
 
+  it('should treat contains and in as array membership predicates for array values', () => {
+    const graph = mock<Operations>();
+    const nodeId = asNodeId('node-a');
+    const node: TgNodeAttributes = {
+      meta: {
+        tags: ['alpha', 'beta'],
+      },
+    } as TgNodeAttributes;
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.tags', contains: 'beta' },
+      }).match(nodeId, node, graph),
+    ).toBe(true);
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.tags', contains: 'missing' },
+      }).match(nodeId, node, graph),
+    ).toBe(false);
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.tags', in: ['missing', 'alpha'] },
+      }).match(nodeId, node, graph),
+    ).toBe(true);
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.tags', in: ['missing'] },
+      }).match(nodeId, node, graph),
+    ).toBe(false);
+  });
+
   it('shoud support string startsWith and endsWith predicates', () => {
     const graph = mock<Operations>();
     const nodeId = asNodeId('node-a');

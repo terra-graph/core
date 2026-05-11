@@ -219,9 +219,16 @@ export class EdgeQuery {
       return value === predicate.eq;
     }
     if (predicate.in !== undefined) {
-      return predicate.in.some((item) => item === value);
+      const candidates = predicate.in;
+      if (Array.isArray(value)) {
+        return value.some((entry) => candidates.some((item) => item === entry));
+      }
+      return candidates.some((item) => item === value);
     }
     if (predicate.contains !== undefined) {
+      if (Array.isArray(value)) {
+        return value.some((entry) => entry === predicate.contains);
+      }
       return String(value ?? '').includes(predicate.contains);
     }
     if (predicate.startsWith !== undefined) {

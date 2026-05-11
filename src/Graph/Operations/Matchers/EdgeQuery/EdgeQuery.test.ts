@@ -464,6 +464,32 @@ describe('EdgeQuery', () => {
       true,
     );
     expect(helper.matchPredicate('value', { in: ['other'] })).toBe(false);
+    expect(
+      helper.matchPredicate(['aws_s3_bucket_notification'], {
+        contains: 'aws_s3_bucket_notification',
+      }),
+    ).toBe(true);
+    expect(
+      helper.matchPredicate(['aws_s3_bucket_notification'], {
+        contains: 'aws_cloudwatch_event_target',
+      }),
+    ).toBe(false);
+    expect(
+      helper.matchPredicate(
+        ['aws_s3_bucket_notification', 'aws_cloudwatch_event_target'],
+        {
+          in: [
+            'aws_lambda_event_source_mapping',
+            'aws_cloudwatch_event_target',
+          ],
+        },
+      ),
+    ).toBe(true);
+    expect(
+      helper.matchPredicate(['aws_s3_bucket_notification'], {
+        in: ['aws_lambda_event_source_mapping'],
+      }),
+    ).toBe(false);
     expect(helper.matchPredicate('value-text', { contains: 'text' })).toBe(
       true,
     );
