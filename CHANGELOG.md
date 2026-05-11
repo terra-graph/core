@@ -1,3 +1,11 @@
+# [1.0.0-rc.22](https://github.com/terra-graph/core/compare/v1.0.0-rc.21...v1.0.0-rc.22) (2026-05-11)
+
+
+### Bug Fixes
+
+* projection semantics use full dsl ([2cbd6bc](https://github.com/terra-graph/core/commit/2cbd6bc635a810010260ed182add67ada55035c3))
+* tests ([518a25c](https://github.com/terra-graph/core/commit/518a25c7848659a22ec0e9d6d56ae96fc563282a))
+
 # [1.0.0-rc.21](https://github.com/terra-graph/core/compare/v1.0.0-rc.20...v1.0.0-rc.21) (2026-05-10)
 
 
