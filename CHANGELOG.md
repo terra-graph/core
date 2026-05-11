@@ -1,3 +1,11 @@
+# [1.0.0-rc.23](https://github.com/terra-graph/core/compare/v1.0.0-rc.22...v1.0.0-rc.23) (2026-05-11)
+
+
+### Features
+
+* better array matching ([df16c85](https://github.com/terra-graph/core/commit/df16c855a3ef31c0857ad01f6c137bf0d50a99df))
+* switch to rule-major processing ([a98255c](https://github.com/terra-graph/core/commit/a98255cd381e30a801f18acca35c947e2c1035d4))
+
 # [1.0.0-rc.22](https://github.com/terra-graph/core/compare/v1.0.0-rc.21...v1.0.0-rc.22) (2026-05-11)
 
 
