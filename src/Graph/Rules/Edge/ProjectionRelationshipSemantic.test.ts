@@ -462,6 +462,113 @@ describe('ProjectionRelationshipSemantic.apply', () => {
     ).toBe(undefined);
   });
 
+  it('should respect full edge dsl when applying compound relationship queries', () => {
+    const dynamodbId = asNodeId('projection-dynamodb');
+    const edgeId = asEdgeId('dynamodb-to-lambda');
+    const adapter = buildAdapter({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [albId]: {
+          id: albId,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:handler',
+            label: 'Lambda handler',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:handler',
+              rootNodeId: asNodeId('anchor-lambda'),
+              anchors: [],
+            },
+          },
+        },
+        [dynamodbId]: {
+          id: dynamodbId,
+          projection: {
+            layer: 'core',
+            address: 'aws.dynamodb:items',
+            label: 'DynamoDB items',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.dynamodb',
+              groupKey: 'aws.dynamodb:items',
+              rootNodeId: asNodeId('anchor-dynamodb'),
+              anchors: [],
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: edgeId,
+          from: dynamodbId,
+          to: albId,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+                evidence: {
+                  derivedBy: 'anchor_path',
+                  evidenceCount: 1,
+                  shortestPathLength: 1,
+                  viaResourceTypes: ['aws_lambda_event_source_mapping'],
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    const lambdaNode = adapter.getNodeAttributes(albId);
+    if (!lambdaNode) {
+      throw new Error('Missing Lambda projection node');
+    }
+
+    const rule = new ProjectionRelationshipSemantic({
+      edge: {
+        and: [
+          {
+            from: {
+              attr: {
+                key: 'projection.derivation.projectionName',
+                eq: 'aws.lambda',
+              },
+            },
+          },
+          {
+            to: {
+              attr: {
+                key: 'projection.derivation.projectionName',
+                eq: 'aws.dynamodb',
+              },
+            },
+          },
+          {
+            attr: {
+              key: 'projection.adjacency.evidence.viaResourceTypes',
+              contains: 'aws_lambda_event_source_mapping',
+            },
+          },
+        ],
+      },
+      options: {
+        relation: 'accesses',
+      },
+    });
+
+    rule.match(albId, lambdaNode, adapter);
+    const result = rule.apply(albId, lambdaNode, adapter);
+
+    expect(result.edgeSource(edgeId)).toBe(albId);
+    expect(result.edgeTarget(edgeId)).toBe(dynamodbId);
+    expect(
+      result.getEdgeAttributes(edgeId)?.projection?.relationship?.relation,
+    ).toBe('accesses');
+  });
+
   it('should cover re-check mismatch and out-edge assignment branches', () => {
     const outEdgeId = asEdgeId('out-edge');
     const plainInEdgeId = asEdgeId('plain-in-edge');

@@ -107,8 +107,7 @@ export class ProjectionRelationshipSemantic extends EdgeRule {
     }
 
     let updated = graph;
-    const { from, to } = this.query;
-    if (!from.match(nodeId, node, updated)) {
+    if (!this.query.matchSourceNode(nodeId, node, updated)) {
       return updated;
     }
 
@@ -120,11 +119,14 @@ export class ProjectionRelationshipSemantic extends EdgeRule {
     for (const edgeId of updated.outEdges(nodeId)) {
       const targetId = updated.edgeTarget(edgeId);
       const target = updated.getNodeAttributes(targetId);
-      if (!target || !to.match(targetId, target, updated)) {
+      if (!target) {
         continue;
       }
 
       const current = updated.getEdgeAttributes(edgeId);
+      if (!this.matchesEdge(nodeId, node, targetId, target, current, updated)) {
+        continue;
+      }
       if (!hasProjectionSemanticsCandidate(current)) {
         continue;
       }
@@ -146,11 +148,16 @@ export class ProjectionRelationshipSemantic extends EdgeRule {
       for (const edgeId of updated.inEdges(nodeId)) {
         const sourceId = updated.edgeSource(edgeId);
         const source = updated.getNodeAttributes(sourceId);
-        if (!source || !to.match(sourceId, source, updated)) {
+        if (!source) {
           continue;
         }
 
         const current = updated.getEdgeAttributes(edgeId);
+        if (
+          !this.matchesEdge(nodeId, node, sourceId, source, current, updated)
+        ) {
+          continue;
+        }
         if (!hasProjectionSemanticsCandidate(current)) {
           continue;
         }
