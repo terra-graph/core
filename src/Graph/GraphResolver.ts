@@ -43,13 +43,12 @@ export class GraphResolver {
     logPrefix = 'phase',
   ): AdapterOperations {
     let updated = adapter;
-    const nodeIds = adapter.nodeIds();
-
-    for (const nodeId of nodeIds) {
-      for (const rule of rules) {
+    for (const rule of rules) {
+      const nodeIds = updated.nodeIds();
+      for (const nodeId of nodeIds) {
         const node = updated.getNodeAttributes(nodeId);
         if (!node) {
-          break;
+          continue;
         }
         try {
           if (rule.match(nodeId, node, updated)) {

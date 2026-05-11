@@ -40,6 +40,54 @@ describe('GraphResolver.resolve', () => {
     }
   }
 
+  class TraceRule extends NodeRule {
+    constructor(
+      config: ConstructorParameters<typeof NodeRule>[0],
+      private readonly label: string,
+      private readonly trace: string[],
+    ) {
+      super(config);
+    }
+
+    public override apply(
+      nodeId: NodeId,
+      _node: TgNodeAttributes,
+      graph: AdapterOperations,
+    ) {
+      if (!this.wasMatched(nodeId)) {
+        return graph;
+      }
+      this.trace.push(`${this.label}:${String(nodeId)}`);
+      return graph;
+    }
+  }
+
+  class AddNodeRule extends NodeRule {
+    constructor(
+      config: ConstructorParameters<typeof NodeRule>[0],
+      private readonly nodeIdToAdd: NodeId,
+    ) {
+      super(config);
+    }
+
+    public override apply(
+      nodeId: NodeId,
+      _node: TgNodeAttributes,
+      graph: AdapterOperations,
+    ) {
+      if (!this.wasMatched(nodeId)) {
+        return graph;
+      }
+      if (nodeId !== asNodeId('resolver.node-a')) {
+        return graph;
+      }
+      return graph.setNodeAttributes(this.nodeIdToAdd, {
+        id: this.nodeIdToAdd,
+        label: String(this.nodeIdToAdd),
+      });
+    }
+  }
+
   class ThrowingMatchRule extends NodeRule {
     public override apply(
       _nodeId: NodeId,
@@ -164,6 +212,46 @@ describe('GraphResolver.resolve', () => {
     expect(result.nodeIds()).toHaveLength(2);
     expect(phaseOne.applyCalls).toBe(2);
     expect(phaseTwo.applyCalls).toBe(2);
+  });
+
+  it('should apply each rule as a whole-graph pass before moving to the next rule', () => {
+    const adapter = new GraphologyAdapter(new DirectedGraph());
+    const resolver = new GraphResolver(adapter);
+    const input = createGraph();
+    const trace: string[] = [];
+
+    const first = new TraceRule({ node: { any: true } }, 'rule-1', trace);
+    const second = new TraceRule({ node: { any: true } }, 'rule-2', trace);
+
+    resolver.resolve({
+      graph: input,
+      phases: [[first, second]],
+    });
+
+    expect(trace).toEqual([
+      'rule-1:resolver.node-a',
+      'rule-1:resolver.node-b',
+      'rule-2:resolver.node-a',
+      'rule-2:resolver.node-b',
+    ]);
+  });
+
+  it('should take a fresh node snapshot for each rule in the same phase', () => {
+    const adapter = new GraphologyAdapter(new DirectedGraph());
+    const resolver = new GraphResolver(adapter);
+    const input = createGraph();
+    const addedNodeId = asNodeId('resolver.node-c');
+    const counter = new CountingRule({ node: { any: true } });
+
+    const result = resolver.resolve({
+      graph: input,
+      phases: [
+        [new AddNodeRule({ node: { any: true } }, addedNodeId), counter],
+      ],
+    });
+
+    expect(result.nodeIds()).toContain(addedNodeId);
+    expect(counter.applyCalls).toBe(3);
   });
 
   it('shoud skip applying a node when the node fails rule matching', () => {
