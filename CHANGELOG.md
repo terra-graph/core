@@ -1,3 +1,10 @@
+# [1.0.0-rc.24](https://github.com/terra-graph/core/compare/v1.0.0-rc.23...v1.0.0-rc.24) (2026-05-12)
+
+
+### Bug Fixes
+
+* collect evidence from all paths ([ab0ba40](https://github.com/terra-graph/core/commit/ab0ba40bab3b7cd7fcd596f70490baba9522512c))
+
 # [1.0.0-rc.23](https://github.com/terra-graph/core/compare/v1.0.0-rc.22...v1.0.0-rc.23) (2026-05-11)
 
 
