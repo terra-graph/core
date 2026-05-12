@@ -1472,4 +1472,119 @@ describe('DeriveProjectionGraph', () => {
     expect(adjacencyEvidence?.evidenceCount).toBe(4);
     expect(adjacencyEvidence?.viaResourceTypes).toEqual(['aws_iam_role']);
   });
+
+  it('should collect distinct via resource types from multiple admissible paths', () => {
+    const sourceRootId = asNodeId('source-root-mixed');
+    const targetRootId = asNodeId('target-root-mixed');
+    const integrationId = asNodeId('integration');
+    const permissionId = asNodeId('permission');
+    const sourceProjectionId = asNodeId('projection-source-mixed');
+    const targetProjectionId = asNodeId('projection-target-mixed');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [sourceRootId]: {
+          id: sourceRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_apigatewayv2_api.source',
+            resource: 'aws_apigatewayv2_api',
+            name: 'source',
+          },
+        },
+        [integrationId]: {
+          id: integrationId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_apigatewayv2_integration.path',
+            resource: 'aws_apigatewayv2_integration',
+            name: 'path',
+          },
+        },
+        [permissionId]: {
+          id: permissionId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_permission.allow',
+            resource: 'aws_lambda_permission',
+            name: 'allow',
+          },
+        },
+        [targetRootId]: {
+          id: targetRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.target',
+            resource: 'aws_lambda_function',
+            name: 'target',
+          },
+        },
+      },
+      edges: [
+        {
+          id: 'edge-source-integration' as never,
+          from: sourceRootId,
+          to: integrationId,
+        },
+        {
+          id: 'edge-integration-target' as never,
+          from: integrationId,
+          to: targetRootId,
+        },
+        {
+          id: 'edge-source-permission' as never,
+          from: sourceRootId,
+          to: permissionId,
+        },
+        {
+          id: 'edge-permission-target' as never,
+          from: permissionId,
+          to: targetRootId,
+        },
+      ],
+    };
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: { any: true },
+          relationships: {
+            maxDepth: 2,
+            minEvidence: 1,
+          },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+
+    const evidence = helpers.inferAdjacencies(
+      new Map([
+        [sourceProjectionId, resolved],
+        [targetProjectionId, resolved],
+      ]),
+      new Map([
+        [sourceProjectionId, sourceRootId],
+        [targetProjectionId, targetRootId],
+      ]),
+      new Map([
+        [sourceRootId, new Set([sourceProjectionId])],
+        [targetRootId, new Set([targetProjectionId])],
+      ]),
+      adapter,
+    );
+    const adjacencyEvidence = evidence.get(
+      `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
+    );
+
+    expect(adjacencyEvidence?.evidenceCount).toBe(2);
+    expect(adjacencyEvidence?.shortestPathLength).toBe(2);
+    expect(adjacencyEvidence?.viaResourceTypes).toEqual([
+      'aws_apigatewayv2_integration',
+      'aws_lambda_permission',
+    ]);
+  });
 });

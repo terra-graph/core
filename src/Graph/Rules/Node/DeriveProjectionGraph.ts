@@ -459,7 +459,6 @@ export class DeriveProjectionGraph extends NodeRule {
         continue;
       }
 
-      const visitedDepth = new Map<NodeId, number>([[sourceRootNodeId, 0]]);
       const queue: QueueItem[] = [
         {
           current: sourceRootNodeId,
@@ -475,6 +474,9 @@ export class DeriveProjectionGraph extends NodeRule {
         }
 
         for (const next of this.neighborIds(current.current, graph)) {
+          if (current.path.includes(next)) {
+            continue;
+          }
           const nextDepth = current.depth + 1;
           const nextRootProjections = rootToProjections.get(next) ?? new Set();
           const otherProjectionIds = [...nextRootProjections].filter(
@@ -522,11 +524,6 @@ export class DeriveProjectionGraph extends NodeRule {
             continue;
           }
 
-          const visited = visitedDepth.get(next);
-          if (visited !== undefined && visited <= nextDepth) {
-            continue;
-          }
-          visitedDepth.set(next, nextDepth);
           queue.push({
             current: next,
             depth: nextDepth,
