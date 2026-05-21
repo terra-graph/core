@@ -1,15 +1,22 @@
 import { GraphPluginRegistry } from '../Graph/GraphPlugin.js';
+import { AdapterOperations } from '../Graph/Operations/Operations.js';
 import { Profile } from '../Graph/Profile.js';
 import { ProfileRegistry } from '../Graph/ProfileRegistry.js';
+import { Renderer } from '../Graph/Renderer.js';
+import { RendererRegistry } from '../Graph/Renderers/RendererRegistry.js';
 import { NamedRuleRegistry } from '../Graph/Rules/NamedRuleRegistry.js';
 import { NamedRuleSetRegistry } from '../Graph/Rules/NamedRuleSetRegistry.js';
 import { BaseRule } from '../Graph/Rules/Rule.js';
+import { ArtifactWriter } from '../Output/ArtifactWriter.js';
+import { WriterRegistry } from '../Output/Writers/WriterRegistry.js';
 
 export type RuntimeCatalogProvider = {
   namedRules?: NamedRuleRegistry;
   namedRuleSets?: NamedRuleSetRegistry;
   profiles?: ProfileRegistry;
   plugins?: GraphPluginRegistry;
+  renderers?: RendererRegistry;
+  writers?: WriterRegistry;
 };
 
 export class RuntimeCatalog {
@@ -17,12 +24,16 @@ export class RuntimeCatalog {
   public readonly namedRuleSets: NamedRuleSetRegistry;
   public readonly profiles: ProfileRegistry;
   public readonly plugins: GraphPluginRegistry;
+  public readonly renderers: RendererRegistry;
+  public readonly writers: WriterRegistry;
 
   constructor(input: RuntimeCatalogProvider = {}) {
     this.namedRules = input.namedRules ?? new NamedRuleRegistry();
     this.namedRuleSets = input.namedRuleSets ?? new NamedRuleSetRegistry();
     this.profiles = input.profiles ?? new ProfileRegistry();
     this.plugins = input.plugins ?? new GraphPluginRegistry();
+    this.renderers = input.renderers ?? new RendererRegistry();
+    this.writers = input.writers ?? new WriterRegistry();
   }
 
   public static from(providers: RuntimeCatalogProvider[]): RuntimeCatalog {
@@ -46,6 +57,12 @@ export class RuntimeCatalog {
       plugins: provider.plugins
         ? this.plugins.use(provider.plugins)
         : this.plugins,
+      renderers: provider.renderers
+        ? this.renderers.use(provider.renderers)
+        : this.renderers,
+      writers: provider.writers
+        ? this.writers.use(provider.writers)
+        : this.writers,
     });
   }
 
@@ -71,5 +88,20 @@ export class RuntimeCatalog {
 
   public resolveProfileRenderer(name: string): string | undefined {
     return this.resolveProfile(name).resolveRenderer();
+  }
+
+  public resolveRenderer(
+    name: string,
+    adapter: AdapterOperations,
+    options?: Record<string, unknown>,
+  ): Renderer<AdapterOperations> {
+    return this.renderers.resolve(name, adapter, options);
+  }
+
+  public resolveWriter(
+    name: string,
+    options?: Record<string, unknown>,
+  ): ArtifactWriter {
+    return this.writers.resolve(name, options);
   }
 }

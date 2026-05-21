@@ -1,9 +1,15 @@
+import { DirectedGraph } from 'graphology';
+import { GraphologyAdapter } from '../Graph/Adapters/GraphologyAdapter.js';
 import { GraphPlugin, GraphPluginRegistry } from '../Graph/GraphPlugin.js';
 import { Profile } from '../Graph/Profile.js';
 import { ProfileRegistry } from '../Graph/ProfileRegistry.js';
+import { JsonRenderer } from '../Graph/Renderers/JsonRenderer.js';
+import { RendererRegistry } from '../Graph/Renderers/RendererRegistry.js';
 import { NamedRuleRegistry } from '../Graph/Rules/NamedRuleRegistry.js';
 import { NamedRuleSetRegistry } from '../Graph/Rules/NamedRuleSetRegistry.js';
 import { RemoveNode } from '../Graph/Rules/Node/RemoveNode.js';
+import { StdoutArtifactWriter } from '../Output/ArtifactWriter/StdoutArtifactWriter.js';
+import { WriterRegistry } from '../Output/Writers/WriterRegistry.js';
 import { RuntimeCatalog } from './RuntimeCatalog.js';
 
 describe('RuntimeCatalog.from', () => {
@@ -34,18 +40,28 @@ describe('RuntimeCatalog.from', () => {
     const plugins = new GraphPluginRegistry({
       'example.plugin': new ExamplePlugin(),
     });
+    const renderers = new RendererRegistry({
+      json: () => new JsonRenderer(),
+    });
+    const writers = new WriterRegistry({
+      stdout: () => new StdoutArtifactWriter(),
+    });
 
     const catalog = RuntimeCatalog.from([
       { namedRules },
       { namedRuleSets },
       { profiles },
       { plugins },
+      { renderers },
+      { writers },
     ]);
 
     expect(catalog.namedRules.names()).toEqual(['ruleOne']);
     expect(catalog.namedRuleSets.names()).toEqual(['setOne']);
     expect(catalog.profiles.names()).toEqual(['example.profile']);
     expect(catalog.plugins.names()).toEqual(['example.plugin']);
+    expect(catalog.renderers.list()).toEqual(['json']);
+    expect(catalog.writers.list()).toEqual(['stdout']);
   });
 
   it('shoud prefer later providers when names collide', () => {
@@ -185,5 +201,63 @@ describe('RuntimeCatalog.use', () => {
 
     expect(updated.namedRules.names()).toEqual(['baseRule']);
     expect(updated.profiles.names()).toEqual(['example.profile']);
+  });
+
+  it('shoud preserve renderer and writer registries when provider omits them', () => {
+    const base = new RuntimeCatalog({
+      renderers: new RendererRegistry({
+        json: () => new JsonRenderer(),
+      }),
+      writers: new WriterRegistry({
+        stdout: () => new StdoutArtifactWriter(),
+      }),
+    });
+
+    const updated = base.use({
+      profiles: new ProfileRegistry({
+        'example.profile': new Profile('example.profile', {}),
+      }),
+    });
+
+    expect(updated.renderers.list()).toEqual(['json']);
+    expect(updated.writers.list()).toEqual(['stdout']);
+  });
+});
+
+describe('RuntimeCatalog.resolveRenderer', () => {
+  it('shoud resolve renderers through the renderer registry', () => {
+    const factory = jest.fn(() => new JsonRenderer());
+    const catalog = new RuntimeCatalog({
+      renderers: new RendererRegistry({
+        json: factory,
+      }),
+    });
+    const adapter = new GraphologyAdapter(new DirectedGraph());
+
+    const renderer = catalog.resolveRenderer('json', adapter, { pretty: true });
+
+    expect(factory).toHaveBeenCalledWith({
+      adapter,
+      options: { pretty: true },
+    });
+    expect(renderer).toBeInstanceOf(JsonRenderer);
+  });
+});
+
+describe('RuntimeCatalog.resolveWriter', () => {
+  it('shoud resolve writers through the writer registry', () => {
+    const factory = jest.fn(() => new StdoutArtifactWriter());
+    const catalog = new RuntimeCatalog({
+      writers: new WriterRegistry({
+        stdout: factory,
+      }),
+    });
+
+    const writer = catalog.resolveWriter('stdout', { flush: true });
+
+    expect(factory).toHaveBeenCalledWith({
+      options: { flush: true },
+    });
+    expect(writer).toBeInstanceOf(StdoutArtifactWriter);
   });
 });

@@ -86,8 +86,10 @@ describe('ZodRuntimeConfigValidator.validate', () => {
           {
             renderer: 'dot',
             transformers: ['dotcli'],
-            outWriter: 'file',
-            outFile: './diagram.png',
+            writer: 'file',
+            writerOptions: {
+              target: './diagram.png',
+            },
             options: {
               graph: {
                 ranksep: 6,
@@ -96,8 +98,10 @@ describe('ZodRuntimeConfigValidator.validate', () => {
           },
           {
             renderer: 'json',
-            outWriter: 'file',
-            outFile: './diagram.json',
+            writer: 'file',
+            writerOptions: {
+              target: './diagram.json',
+            },
           },
         ],
       },
@@ -106,6 +110,78 @@ describe('ZodRuntimeConfigValidator.validate', () => {
     expect(result.run?.outputs).toHaveLength(2);
     expect(result.run?.outputs?.[0]?.renderer).toBe('dot');
     expect(result.run?.outputs?.[1]?.renderer).toBe('json');
+  });
+
+  it('shoud allow non-file writers without writerOptions.target', () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    const result = validator.validate({
+      profiles: {
+        base: {
+          phases: [],
+        },
+      },
+      run: {
+        profile: 'base',
+        outputs: [
+          {
+            renderer: 'json',
+            writer: 'stdout',
+          },
+        ],
+      },
+    });
+
+    expect(result.run?.outputs?.[0]?.writer).toBe('stdout');
+  });
+
+  it("shoud require writerOptions.target when writer is 'file'", () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    expect(() =>
+      validator.validate({
+        profiles: {
+          base: {
+            phases: [],
+          },
+        },
+        run: {
+          profile: 'base',
+          outputs: [
+            {
+              renderer: 'json',
+              writer: 'file',
+            },
+          ],
+        },
+      }),
+    ).toThrow(
+      "run.outputs[].writerOptions.target is required when writer is 'file'",
+    );
+  });
+
+  it('shoud reject legacy outWriter and outFile fields', () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    expect(() =>
+      validator.validate({
+        profiles: {
+          base: {
+            phases: [],
+          },
+        },
+        run: {
+          profile: 'base',
+          outputs: [
+            {
+              renderer: 'json',
+              outWriter: 'file',
+              outFile: './diagram.json',
+            },
+          ],
+        },
+      }),
+    ).toThrow();
   });
 
   it('shoud validate plugin refs with slot keys', () => {

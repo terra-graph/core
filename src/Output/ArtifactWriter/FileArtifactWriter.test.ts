@@ -82,4 +82,49 @@ describe('FileArtifactWriter.write', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('shoud use constructor target when write input omits it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'file-artifact-writer-'));
+    const target = join(dir, 'graph.dot');
+    const writer = new FileArtifactWriter({ target });
+
+    try {
+      await writer.write({
+        artifact: {
+          content: 'digraph G {}',
+          mediaType: 'text/vnd.graphviz',
+          extension: 'dot',
+        },
+      });
+
+      const written = await readFile(target, 'utf8');
+      expect(written).toBe('digraph G {}');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud prefer write input target over constructor target', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'file-artifact-writer-'));
+    const fallbackTarget = join(dir, 'fallback.dot');
+    const target = join(dir, 'preferred.dot');
+    const writer = new FileArtifactWriter({ target: fallbackTarget });
+
+    try {
+      await writer.write({
+        target,
+        artifact: {
+          content: 'digraph G {}',
+          mediaType: 'text/vnd.graphviz',
+          extension: 'dot',
+        },
+      });
+
+      const written = await readFile(target, 'utf8');
+      expect(written).toBe('digraph G {}');
+      await expect(readFile(fallbackTarget, 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

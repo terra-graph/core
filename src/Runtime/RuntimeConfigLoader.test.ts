@@ -4,9 +4,13 @@ import { join } from 'node:path';
 import { DotAdapter } from '../Graph/Adapters/DotAdapter.js';
 import { Profile } from '../Graph/Profile.js';
 import { ProfileRegistry } from '../Graph/ProfileRegistry.js';
+import { JsonRenderer } from '../Graph/Renderers/JsonRenderer.js';
+import { RendererRegistry } from '../Graph/Renderers/RendererRegistry.js';
 import { NamedRuleRegistry } from '../Graph/Rules/NamedRuleRegistry.js';
 import { NamedRuleSetRegistry } from '../Graph/Rules/NamedRuleSetRegistry.js';
 import { RemoveNode } from '../Graph/Rules/Node/RemoveNode.js';
+import { StdoutArtifactWriter } from '../Output/ArtifactWriter/StdoutArtifactWriter.js';
+import { WriterRegistry } from '../Output/Writers/WriterRegistry.js';
 import { RuntimeConfigLoader } from './RuntimeConfigLoader.js';
 import { RuntimeConfigParser } from './RuntimeConfigParser.js';
 import { RuntimeConfigParserRegistry } from './RuntimeConfigParserRegistry.js';
@@ -446,6 +450,44 @@ profiles:
       id: 'RemoveNode',
       config: { node: { any: true } },
     });
+  });
+
+  it('shoud merge renderer and writer registries declared by runtime providers', async () => {
+    class FakeRuntimeProviderLoader implements RuntimeProviderLoader {
+      public async load(
+        _input: RuntimeProviderLoadInput,
+      ): Promise<RuntimeProvider> {
+        return {
+          renderers: new RendererRegistry({
+            json: () => new JsonRenderer(),
+          }),
+          writers: new WriterRegistry({
+            stdout: () => new StdoutArtifactWriter(),
+          }),
+        };
+      }
+    }
+
+    const source = new InMemoryRuntimeConfigSource(
+      JSON.stringify({
+        providers: ['@example/runtime-provider'],
+        profiles: {
+          profile: {
+            phases: [],
+          },
+        },
+      }),
+      'json',
+      '/tmp/runtime.json',
+    );
+    const loader = new RuntimeConfigLoader({
+      providerLoader: new FakeRuntimeProviderLoader(),
+    });
+
+    const loaded = await loader.load({ source });
+
+    expect(loaded.catalog.renderers.list()).toEqual(['json']);
+    expect(loaded.catalog.writers.list()).toEqual(['stdout']);
   });
 
   it('shoud throw a contextual error when loading a runtime provider fails', async () => {

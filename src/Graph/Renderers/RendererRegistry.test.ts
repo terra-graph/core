@@ -49,3 +49,21 @@ describe('RendererRegistry.list', () => {
     expect(registry.list()).toEqual(['alpha', 'bravo', 'delta']);
   });
 });
+
+describe('RendererRegistry.use', () => {
+  it('shoud prefer later renderer factories when names collide', () => {
+    const registry = new RendererRegistry({
+      shared: () => new JsonRenderer(),
+    });
+    const nextFactory = jest.fn(() => new JsonRenderer());
+    const merged = registry.use(
+      new RendererRegistry({
+        shared: nextFactory,
+      }),
+    );
+
+    merged.resolve('shared', new GraphologyAdapter(new DirectedGraph()));
+
+    expect(nextFactory).toHaveBeenCalledTimes(1);
+  });
+});

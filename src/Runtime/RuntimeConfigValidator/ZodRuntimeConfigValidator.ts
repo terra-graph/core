@@ -45,10 +45,25 @@ const runOutputSchema = z
     renderer: z.string().min(1).optional(),
     options: z.record(z.string(), z.unknown()).optional(),
     transformers: z.array(z.string().min(1)).optional(),
-    outWriter: z.enum(['stdout', 'file']).optional(),
-    outFile: z.string().min(1).optional(),
+    writer: z.string().min(1),
+    writerOptions: z.record(z.string(), z.unknown()).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.writer !== 'file') {
+      return;
+    }
+
+    const target = value.writerOptions?.target;
+    if (typeof target !== 'string' || target.trim().length === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "run.outputs[].writerOptions.target is required when writer is 'file'",
+        path: ['writerOptions', 'target'],
+      });
+    }
+  });
 
 const pluginRefSchema = z
   .object({

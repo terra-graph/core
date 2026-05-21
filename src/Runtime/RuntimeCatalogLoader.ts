@@ -26,8 +26,8 @@ export type SerializedRuntimeConfig<
       renderer?: string;
       options?: TOptions;
       transformers?: string[];
-      outWriter?: 'stdout' | 'file';
-      outFile?: string;
+      writer: string;
+      writerOptions?: Record<string, unknown>;
     }>;
   };
 };

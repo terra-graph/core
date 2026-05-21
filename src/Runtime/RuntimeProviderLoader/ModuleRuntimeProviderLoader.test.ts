@@ -3,6 +3,8 @@ import { Module } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { RendererRegistry } from '../../Graph/Renderers/RendererRegistry.js';
+import { WriterRegistry } from '../../Output/Writers/WriterRegistry.js';
 import { ModuleRuntimeProviderLoader } from './ModuleRuntimeProviderLoader.js';
 
 type ModuleRuntimeProviderLoaderPrivate = {
@@ -19,6 +21,21 @@ const asPrivate = (
   loader as unknown as ModuleRuntimeProviderLoaderPrivate;
 
 describe('ModuleRuntimeProviderLoader.load', () => {
+  it('shoud treat renderer and writer registries as provider shape', () => {
+    const loader = new ModuleRuntimeProviderLoader();
+
+    expect(
+      asPrivate(loader).hasProviderShape({
+        renderers: new RendererRegistry(),
+      }),
+    ).toBe(true);
+    expect(
+      asPrivate(loader).hasProviderShape({
+        writers: new WriterRegistry(),
+      }),
+    ).toBe(true);
+  });
+
   it('shoud load a provider from a module default object export', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
     const providerPath = join(dir, 'provider.cjs');

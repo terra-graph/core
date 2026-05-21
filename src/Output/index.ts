@@ -5,3 +5,4 @@ export * from './ArtifactTransformerFactory/index.js';
 export * from './ArtifactWriter.js';
 export * from './ArtifactWriter/index.js';
 export * from './RenderPipeline.js';
+export * from './Writers/index.js';

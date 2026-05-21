@@ -4,29 +4,33 @@ import { ArtifactWriteInput, ArtifactWriter } from '../ArtifactWriter.js';
 
 export type FileArtifactWriterOptions = {
   createDirectories?: boolean;
+  target?: string;
 };
 
 export class FileArtifactWriter implements ArtifactWriter {
   private readonly createDirectories: boolean;
+  private readonly target?: string;
 
   constructor(options: FileArtifactWriterOptions = {}) {
     this.createDirectories = options.createDirectories ?? true;
+    this.target = options.target;
   }
 
   public async write(input: ArtifactWriteInput): Promise<void> {
-    if (!input.target) {
+    const target = input.target ?? this.target;
+    if (!target) {
       throw new Error('FileArtifactWriter requires a target path');
     }
 
     if (this.createDirectories) {
-      await mkdir(dirname(input.target), { recursive: true });
+      await mkdir(dirname(target), { recursive: true });
     }
 
     if (typeof input.artifact.content === 'string') {
-      await writeFile(input.target, input.artifact.content, 'utf8');
+      await writeFile(target, input.artifact.content, 'utf8');
       return;
     }
 
-    await writeFile(input.target, Buffer.from(input.artifact.content));
+    await writeFile(target, Buffer.from(input.artifact.content));
   }
 }

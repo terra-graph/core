@@ -47,6 +47,8 @@ export class ModuleRuntimeProviderLoader implements RuntimeProviderLoader {
       'namedRuleSets' in record ||
       'profiles' in record ||
       'plugins' in record ||
+      'renderers' in record ||
+      'writers' in record ||
       'supportedAdapterOperationsRegistry' in record
     );
   }

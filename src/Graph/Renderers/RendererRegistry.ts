@@ -37,6 +37,13 @@ export class RendererRegistry {
     return Object.keys(this.renderers).sort();
   }
 
+  public use(registry: RendererRegistry): RendererRegistry {
+    return new RendererRegistry({
+      ...this.renderers,
+      ...registry.renderers,
+    });
+  }
+
   private static normalizeRegistry(
     renderers: Record<string, RendererFactory>,
   ): Record<string, RendererFactory> {
