@@ -1,3 +1,10 @@
+# [1.0.0-rc.26](https://github.com/terra-graph/core/compare/v1.0.0-rc.25...v1.0.0-rc.26) (2026-05-22)
+
+
+### Bug Fixes
+
+* better projection materilaition ([f899e48](https://github.com/terra-graph/core/commit/f899e48b2be25a44c1a1d74bbe5368ad2e6003db))
+
 # [1.0.0-rc.25](https://github.com/terra-graph/core/compare/v1.0.0-rc.24...v1.0.0-rc.25) (2026-05-22)
 
 

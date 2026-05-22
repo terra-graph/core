@@ -9,7 +9,7 @@
     "type": "git",
     "url": "git+https://github.com/terra-graph/core.git"
   },
-  "version": "1.0.0-rc.25",
+  "version": "1.0.0-rc.26",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/esm/index.d.ts",
