@@ -86,4 +86,19 @@ describe('TgNodeLabel.getLabel', () => {
 
     expect(subject.getLabel()).toBe('aws_s3_bucket.bucket.id');
   });
+
+  it('should prefer projection labels when terraform metadata is missing', () => {
+    const node: TgNode = {
+      id: asNodeId('node-projection'),
+      projection: {
+        layer: 'core',
+        address: 'aws.lambda:handler[0]',
+        label: 'handler[0]',
+      },
+    };
+
+    const subject = new TgNodeLabel(node);
+
+    expect(subject.getLabel()).toBe('handler[0]');
+  });
 });

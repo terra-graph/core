@@ -201,6 +201,9 @@ export type TgNodeProjectionDerivation = {
   projectionName?: string;
   groupKey?: string;
   rootNodeId?: NodeId;
+  rootInstanceAddress?: string;
+  instanceKey?: string;
+  instanceOrdinal?: number;
   anchors?: TgNodeProjectionAnchor[];
 };
 
