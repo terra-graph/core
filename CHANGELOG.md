@@ -1,3 +1,11 @@
+# [1.0.0-rc.25](https://github.com/terra-graph/core/compare/v1.0.0-rc.24...v1.0.0-rc.25) (2026-05-22)
+
+
+### Features
+
+* add writers and renderers to runtime providers ([4100a66](https://github.com/terra-graph/core/commit/4100a662da9dbbc10b2f7fb24575bf16d8d1b73a))
+* change the way projections handle cardianlity ([edc6f5c](https://github.com/terra-graph/core/commit/edc6f5c2b6801692a89f2931c2c0c6adf5f41f38))
+
 # [1.0.0-rc.24](https://github.com/terra-graph/core/compare/v1.0.0-rc.23...v1.0.0-rc.24) (2026-05-12)
 
 
