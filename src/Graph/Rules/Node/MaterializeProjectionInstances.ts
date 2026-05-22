@@ -51,6 +51,11 @@ type ProjectionInstance = ProjectionInstanceSeed & {
   layer: string;
 };
 
+type ProjectionInstancePair = {
+  source: ProjectionInstance;
+  target: ProjectionInstance;
+};
+
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -59,6 +64,21 @@ const isProjectionInstanceStrategyName = (
 ): value is ProjectionInstanceStrategyName =>
   value === ProjectionInstanceStrategies.None ||
   value === ProjectionInstanceStrategies.MatchByKey;
+
+const hasFullKeyCoverage = (instances: ProjectionInstance[]): boolean =>
+  instances.every((instance) => instance.instanceKey !== undefined);
+
+const keysEqual = (
+  source: ProjectionInstance[],
+  target: ProjectionInstance[],
+): boolean => {
+  const sourceKeys = source.map((instance) => instance.instanceKey).sort();
+  const targetKeys = target.map((instance) => instance.instanceKey).sort();
+  return JSON.stringify(sourceKeys) === JSON.stringify(targetKeys);
+};
+
+const hasFullOrdinalCoverage = (instances: ProjectionInstance[]): boolean =>
+  instances.every((instance) => instance.instanceOrdinal !== undefined);
 
 const parseTerraformInstanceAddress = (
   address: string,
@@ -312,25 +332,22 @@ export class MaterializeProjectionInstances extends NodeRule {
 
         const attributes = graph.getEdgeAttributes(edgeId);
         const suffix = this.edgeSuffix(attributes, edgeId);
-        for (const sourceInstance of sourceInstances) {
-          for (const targetInstance of targetInstances) {
-            if (!this.canRelate(sourceInstance, targetInstance)) {
-              continue;
-            }
-
-            updated = updated.setEdge(
-              edgeIdFrom(
-                sourceInstance.projectionNodeId,
-                targetInstance.projectionNodeId,
-                suffix,
-              ),
-              sourceInstance.projectionNodeId,
-              targetInstance.projectionNodeId,
-              {
-                ...attributes,
-              },
-            );
-          }
+        for (const pair of this.matchInstances(
+          sourceInstances,
+          targetInstances,
+        )) {
+          updated = updated.setEdge(
+            edgeIdFrom(
+              pair.source.projectionNodeId,
+              pair.target.projectionNodeId,
+              suffix,
+            ),
+            pair.source.projectionNodeId,
+            pair.target.projectionNodeId,
+            {
+              ...attributes,
+            },
+          );
         }
       }
     }
@@ -380,6 +397,10 @@ export class MaterializeProjectionInstances extends NodeRule {
         explicitRootInstance.key !== undefined ||
         explicitRootInstance.ordinal !== undefined
       ) {
+        const explicitOrdinal =
+          explicitRootInstance.ordinal ??
+          this.stateOrdinal(rootNode, rootAddress) ??
+          undefined;
         return [
           buildProjectionInstanceSeed(
             anchor.nodeId,
@@ -388,7 +409,7 @@ export class MaterializeProjectionInstances extends NodeRule {
             {
               rootInstanceAddress: rootAddress,
               instanceKey: explicitRootInstance.key,
-              instanceOrdinal: explicitRootInstance.ordinal,
+              instanceOrdinal: explicitOrdinal,
               anchors: [anchor],
             },
           ),
@@ -526,19 +547,68 @@ export class MaterializeProjectionInstances extends NodeRule {
     ];
   }
 
-  private canRelate(
-    source: ProjectionInstance,
-    target: ProjectionInstance,
-  ): boolean {
-    if (source.isSingleton || target.isSingleton) {
-      return true;
+  private matchInstances(
+    sourceInstances: ProjectionInstance[],
+    targetInstances: ProjectionInstance[],
+  ): ProjectionInstancePair[] {
+    if (
+      sourceInstances.some((instance) => instance.isSingleton) ||
+      targetInstances.some((instance) => instance.isSingleton)
+    ) {
+      return sourceInstances.flatMap((source) =>
+        targetInstances.map((target) => ({ source, target })),
+      );
     }
 
-    if (!source.instanceKey || !target.instanceKey) {
-      return false;
+    if (
+      sourceInstances.length === targetInstances.length &&
+      hasFullKeyCoverage(sourceInstances) &&
+      hasFullKeyCoverage(targetInstances) &&
+      keysEqual(sourceInstances, targetInstances)
+    ) {
+      const targetByKey = new Map(
+        targetInstances.map((instance) => [
+          instance.instanceKey as string,
+          instance,
+        ]),
+      );
+      return sourceInstances.map((source) => ({
+        source,
+        target: targetByKey.get(
+          source.instanceKey as string,
+        ) as ProjectionInstance,
+      }));
     }
 
-    return source.instanceKey === target.instanceKey;
+    const keyIntersection = sourceInstances.filter((source) =>
+      targetInstances.some(
+        (target) => target.instanceKey === source.instanceKey,
+      ),
+    );
+    if (keyIntersection.length > 0) {
+      return [];
+    }
+
+    if (
+      sourceInstances.length === targetInstances.length &&
+      hasFullOrdinalCoverage(sourceInstances) &&
+      hasFullOrdinalCoverage(targetInstances)
+    ) {
+      const sortedSource = [...sourceInstances].sort(
+        (left, right) =>
+          (left.instanceOrdinal as number) - (right.instanceOrdinal as number),
+      );
+      const sortedTarget = [...targetInstances].sort(
+        (left, right) =>
+          (left.instanceOrdinal as number) - (right.instanceOrdinal as number),
+      );
+      return sortedSource.map((source, index) => ({
+        source,
+        target: sortedTarget[index] as ProjectionInstance,
+      }));
+    }
+
+    return [];
   }
 
   private edgeSuffix(attributes: TgEdgeAttributes, edgeId: string): string {
@@ -567,6 +637,21 @@ export class MaterializeProjectionInstances extends NodeRule {
         ? input.instanceStrategy
         : ProjectionInstanceStrategies.None,
     };
+  }
+
+  private stateOrdinal(
+    node: TgNodeAttributes,
+    address: string,
+  ): number | undefined {
+    const instances = node.terraform?.state?.instances;
+    if (!instances) {
+      return undefined;
+    }
+
+    const explicitIndex = instances.findIndex(
+      (instance) => instance.address === address,
+    );
+    return explicitIndex >= 0 ? explicitIndex : undefined;
   }
 }
 

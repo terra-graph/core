@@ -28,10 +28,10 @@ type MaterializeHarness = {
     projectionNode: TgNodeAttributes,
     replacements: Map<NodeId, Array<Record<string, unknown>>>,
   ): Array<Record<string, unknown>>;
-  canRelate(
-    source: Record<string, unknown>,
-    target: Record<string, unknown>,
-  ): boolean;
+  matchInstances(
+    source: Array<Record<string, unknown>>,
+    target: Array<Record<string, unknown>>,
+  ): Array<Record<string, unknown>>;
   edgeSuffix(attributes: Record<string, unknown>, edgeId: string): string;
 };
 
@@ -93,23 +93,141 @@ describe('MaterializeProjectionInstances', () => {
       },
     ]);
     expect(
-      helpers.canRelate(
-        { isSingleton: false, instanceKey: undefined },
-        { isSingleton: false, instanceKey: 'blue' },
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
       ),
-    ).toBe(false);
+    ).toEqual([
+      {
+        source: {
+          projectionNodeId: 'source-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+        },
+        target: {
+          projectionNodeId: 'target-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+        },
+      },
+    ]);
     expect(
-      helpers.canRelate(
-        { isSingleton: false, instanceKey: 'blue' },
-        { isSingleton: false, instanceKey: 'blue' },
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-0',
+            isSingleton: false,
+            instanceOrdinal: 0,
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+            instanceOrdinal: 0,
+          },
+        ],
       ),
-    ).toBe(true);
+    ).toEqual([
+      {
+        source: {
+          projectionNodeId: 'source-0',
+          isSingleton: false,
+          instanceOrdinal: 0,
+        },
+        target: {
+          projectionNodeId: 'target-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+          instanceOrdinal: 0,
+        },
+      },
+    ]);
     expect(
-      helpers.canRelate(
-        { isSingleton: true, instanceKey: undefined },
-        { isSingleton: false, instanceKey: 'blue' },
+      helpers.matchInstances(
+        [{ projectionNodeId: 'singleton', isSingleton: true }],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
       ),
-    ).toBe(true);
+    ).toEqual([
+      {
+        source: {
+          projectionNodeId: 'singleton',
+          isSingleton: true,
+        },
+        target: {
+          projectionNodeId: 'target-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+        },
+      },
+    ]);
+    expect(
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-green',
+            isSingleton: false,
+            instanceKey: 'green',
+          },
+        ],
+      ),
+    ).toEqual([]);
+    expect(
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+          {
+            projectionNodeId: 'source-green',
+            isSingleton: false,
+            instanceKey: 'green',
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+            instanceOrdinal: 0,
+          },
+          {
+            projectionNodeId: 'target-red',
+            isSingleton: false,
+            instanceKey: 'red',
+            instanceOrdinal: 1,
+          },
+        ],
+      ),
+    ).toEqual([]);
     expect(
       helpers.edgeSuffix(
         {
@@ -230,6 +348,17 @@ describe('MaterializeProjectionInstances', () => {
             address: 'aws_lambda_function.quoted["blue"]',
             resource: 'aws_lambda_function',
             name: 'quoted["blue"]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.quoted["blue"]',
+                  index: 'blue',
+                  values: null,
+                },
+              ],
+            },
           },
         },
         [invalidIndex]: {
@@ -239,6 +368,17 @@ describe('MaterializeProjectionInstances', () => {
             address: 'aws_lambda_function.invalid[blue]',
             resource: 'aws_lambda_function',
             name: 'invalid[blue]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.other["green"]',
+                  index: 'green',
+                  values: null,
+                },
+              ],
+            },
           },
         },
         [indexedFromState]: {
@@ -458,6 +598,7 @@ describe('MaterializeProjectionInstances', () => {
       {
         projectionAddress: 'aws.lambda:quoted["blue"]',
         instanceKey: 'blue',
+        instanceOrdinal: 0,
       },
     ]);
     expect(
@@ -966,6 +1107,223 @@ describe('MaterializeProjectionInstances', () => {
     expect(hasEdge(queueBlueProjection, lambdaGreenProjection)).toBe(false);
     expect(hasEdge(queueGreenProjection, lambdaBlueProjection)).toBe(false);
     expect(hasEdge(queueGreenProjection, lambdaGreenProjection)).toBe(true);
+  });
+
+  it('should fall back to ordinal matching for logical projections with different key spaces', () => {
+    const replay0 = tgNodeIdFrom('resource', 'aws_sqs_queue.replay[0]');
+    const replay1 = tgNodeIdFrom('resource', 'aws_sqs_queue.replay[1]');
+    const deadBlue = tgNodeIdFrom(
+      'resource',
+      'aws_sqs_queue.dead_letter["blue"]',
+    );
+    const deadGreen = tgNodeIdFrom(
+      'resource',
+      'aws_sqs_queue.dead_letter["green"]',
+    );
+    const replayProjection = tgProjectionNodeIdFrom('core', 'aws.sqs:replay');
+    const deadLetterProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:dead_letter',
+    );
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [replay0]: {
+          id: replay0,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.replay[0]',
+            resource: 'aws_sqs_queue',
+            name: 'replay[0]',
+          },
+        },
+        [replay1]: {
+          id: replay1,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.replay[1]',
+            resource: 'aws_sqs_queue',
+            name: 'replay[1]',
+          },
+        },
+        [deadBlue]: {
+          id: deadBlue,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.dead_letter["blue"]',
+            resource: 'aws_sqs_queue',
+            name: 'dead_letter["blue"]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_sqs_queue.dead_letter["blue"]',
+                  index: 'blue',
+                  values: null,
+                },
+                {
+                  address: 'aws_sqs_queue.dead_letter["green"]',
+                  index: 'green',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [deadGreen]: {
+          id: deadGreen,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.dead_letter["green"]',
+            resource: 'aws_sqs_queue',
+            name: 'dead_letter["green"]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_sqs_queue.dead_letter["blue"]',
+                  index: 'blue',
+                  values: null,
+                },
+                {
+                  address: 'aws_sqs_queue.dead_letter["green"]',
+                  index: 'green',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [replayProjection]: {
+          id: replayProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.sqs:replay',
+            label: 'replay',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.sqs',
+              groupKey: 'aws.sqs:replay',
+              rootNodeId: replay0,
+              anchors: [
+                {
+                  nodeId: replay0,
+                  address: 'aws_sqs_queue.replay[0]',
+                  role: 'root_node',
+                },
+                {
+                  nodeId: replay1,
+                  address: 'aws_sqs_queue.replay[1]',
+                  role: 'root_node',
+                },
+              ],
+            },
+          },
+        },
+        [deadLetterProjection]: {
+          id: deadLetterProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.sqs:dead_letter',
+            label: 'dead_letter',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.sqs',
+              groupKey: 'aws.sqs:dead_letter',
+              rootNodeId: deadBlue,
+              anchors: [
+                {
+                  nodeId: deadBlue,
+                  address: 'aws_sqs_queue.dead_letter["blue"]',
+                  role: 'root_node',
+                },
+                {
+                  nodeId: deadGreen,
+                  address: 'aws_sqs_queue.dead_letter["green"]',
+                  role: 'root_node',
+                },
+              ],
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: 'logical-routes' as never,
+          from: replayProjection,
+          to: deadLetterProjection,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+                evidence: {
+                  derivedBy: 'anchor_path',
+                  evidenceCount: 1,
+                  shortestPathLength: 1,
+                  viaResourceTypes: ['aws_sqs_queue'],
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
+    const replay0Projection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:replay[0]',
+    );
+    const replay1Projection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:replay[1]',
+    );
+    const deadBlueProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:dead_letter["blue"]',
+    );
+    const deadGreenProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:dead_letter["green"]',
+    );
+
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay0Projection && edge.to === deadBlueProjection,
+      ),
+    ).toBe(true);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay0Projection && edge.to === deadGreenProjection,
+      ),
+    ).toBe(false);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay1Projection && edge.to === deadBlueProjection,
+      ),
+    ).toBe(false);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay1Projection && edge.to === deadGreenProjection,
+      ),
+    ).toBe(true);
   });
 
   it('should cover remaining materialization edge branches', () => {
