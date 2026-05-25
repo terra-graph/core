@@ -117,6 +117,7 @@ export type TgProjectionInferenceEvidence = {
 
 export type TgProjectionAdjacency = {
   source?: 'declared' | 'derived';
+  emit?: boolean;
   evidence?: TgProjectionInferenceEvidence;
 };
 

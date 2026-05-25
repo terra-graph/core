@@ -33,6 +33,26 @@ const projectionSemanticHintFor = (
   return undefined;
 };
 
+const shouldRetainNeutralAdjacencyEdge = (
+  edge: ReturnType<AdapterOperations['getEdgeAttributes']>,
+): boolean => edge.projection?.adjacency?.emit === true;
+
+const stripAdjacencyFromRelationshipEdge = (
+  edge: ReturnType<AdapterOperations['getEdgeAttributes']>,
+) => {
+  if (!edge.projection?.relationship || !edge.projection.adjacency) {
+    return edge;
+  }
+
+  return {
+    ...edge,
+    projection: {
+      ...edge.projection,
+      adjacency: undefined,
+    },
+  };
+};
+
 export class ApplyProjectionEdgeSemantics extends NodeRule {
   constructor() {
     super({
@@ -67,14 +87,30 @@ export class ApplyProjectionEdgeSemantics extends NodeRule {
         visited.add(String(edgeId));
 
         const current = updated.getEdgeAttributes(edgeId);
-        const semantic = projectionSemanticHintFor(current);
+        const normalized = stripAdjacencyFromRelationshipEdge(current);
+        if (normalized !== current) {
+          updated = updated.setEdge(
+            edgeId,
+            updated.edgeSource(edgeId),
+            updated.edgeTarget(edgeId),
+            normalized,
+          );
+        }
+
+        const semantic = projectionSemanticHintFor(normalized);
+        if (!semantic && normalized.projection?.adjacency) {
+          if (!shouldRetainNeutralAdjacencyEdge(normalized)) {
+            updated = updated.removeEdge(edgeId);
+          }
+          continue;
+        }
         if (!semantic) {
           continue;
         }
 
         if (
-          current.hints?.semantic?.semantic === semantic.semantic &&
-          current.hints.semantic.role === semantic.role
+          normalized.hints?.semantic?.semantic === semantic.semantic &&
+          normalized.hints.semantic.role === semantic.role
         ) {
           continue;
         }
@@ -84,9 +120,9 @@ export class ApplyProjectionEdgeSemantics extends NodeRule {
           updated.edgeSource(edgeId),
           updated.edgeTarget(edgeId),
           {
-            ...current,
+            ...normalized,
             hints: {
-              ...current.hints,
+              ...normalized.hints,
               semantic,
             },
           },

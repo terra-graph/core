@@ -517,4 +517,69 @@ describe('TfPlanDecorator.decorate', () => {
       ],
     });
   });
+
+  it('shoud add missing dependency edges from plan configuration references', () => {
+    const graph = {
+      ...buildGraph([
+        'aws_lambda_event_source_mapping.bucket_events_to_lambda',
+        'aws_sqs_queue.bucket_events',
+        'module.lambda.output.lambda_function_arn',
+      ]),
+      edges: [],
+    } satisfies TgGraph;
+    const decorator = new TfPlanDecorator();
+
+    const result = decorator.decorate(graph, {
+      planned_values: {
+        root_module: {
+          resources: [],
+        },
+      },
+      configuration: {
+        root_module: {
+          resources: [
+            {
+              address:
+                'aws_lambda_event_source_mapping.bucket_events_to_lambda',
+              expressions: {
+                event_source_arn: {
+                  references: [
+                    'aws_sqs_queue.bucket_events.arn',
+                    'aws_sqs_queue.bucket_events',
+                  ],
+                },
+                function_name: {
+                  references: [
+                    'module.lambda.lambda_function_arn',
+                    'module.lambda',
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(
+      result.edges.find(
+        (edge) =>
+          edge.from ===
+            toResourceNodeId(
+              'aws_lambda_event_source_mapping.bucket_events_to_lambda',
+            ) && edge.to === toResourceNodeId('aws_sqs_queue.bucket_events'),
+      ),
+    ).toBeDefined();
+    expect(
+      result.edges.find(
+        (edge) =>
+          edge.from ===
+            toResourceNodeId(
+              'aws_lambda_event_source_mapping.bucket_events_to_lambda',
+            ) &&
+          edge.to ===
+            toResourceNodeId('module.lambda.output.lambda_function_arn'),
+      ),
+    ).toBeDefined();
+  });
 });

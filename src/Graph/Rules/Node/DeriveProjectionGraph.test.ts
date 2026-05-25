@@ -11,6 +11,7 @@ import {
   TgGraph,
   TgNodeAttributes,
   TgNodeProjectionAnchor,
+  asEdgeId,
   asNodeId,
   tgNodeIdFrom,
   tgProjectionNodeIdFrom,
@@ -32,6 +33,10 @@ type TestResolvedProjection = {
   relationships: {
     maxDepth: number;
     minEvidence: number;
+    emitAdjacency?: boolean;
+    includeViaResources?: string[];
+    excludeViaResources?: string[];
+    requireViaResources?: string[];
   };
 };
 
@@ -40,6 +45,7 @@ type RelationshipEvidence = {
   shortestPathLength?: number;
   viaResourceTypes: string[];
   evidenceKeys: Set<string>;
+  emitAdjacency?: boolean;
 };
 
 type ParseOptionsResult = {
@@ -57,6 +63,10 @@ type ParseOptionsResult = {
     relationships?: {
       maxDepth?: number;
       minEvidence?: number;
+      emitAdjacency?: boolean;
+      includeViaResources?: string[];
+      excludeViaResources?: string[];
+      requireViaResources?: string[];
     };
   }>;
 };
@@ -118,7 +128,7 @@ type DeriveProjectionGraphTestHarness = {
     projectionDefinitions: Map<NodeId, TestResolvedProjection>,
     projectionRootNodes: Map<NodeId, NodeId>,
     projectionInstances: Map<NodeId, unknown>,
-    rootToProjections: Map<NodeId, Set<NodeId>>,
+    memberToProjections: Map<NodeId, Set<NodeId>>,
     graph: AdapterOperations,
   ): Map<string, RelationshipEvidence & { minEvidence: number }>;
 };
@@ -328,12 +338,12 @@ describe('DeriveProjectionGraph', () => {
     const projectedEdge = result.edges.find(
       (edge) => edge.from === apiProjectionId && edge.to === lambdaProjectionId,
     );
-    expect(projectedEdge?.attributes?.projection?.adjacency).toEqual({
+    expect(projectedEdge?.attributes?.projection?.adjacency).toMatchObject({
       source: 'derived',
       evidence: {
         derivedBy: 'anchor_path',
-        evidenceCount: 1,
-        shortestPathLength: 2,
+        evidenceCount: 2,
+        shortestPathLength: 1,
         viaResourceTypes: ['aws_apigatewayv2_integration'],
       },
     });
@@ -1422,6 +1432,10 @@ describe('DeriveProjectionGraph', () => {
             relationships: {
               maxDepth: 'bad',
               minEvidence: 'bad',
+              emitAdjacency: 'bad',
+              includeViaResources: ['via-ok', 1],
+              excludeViaResources: [2, 'via-skip'],
+              requireViaResources: ['via-required', 3],
             },
           },
         ],
@@ -1442,6 +1456,10 @@ describe('DeriveProjectionGraph', () => {
           relationships: {
             maxDepth: undefined,
             minEvidence: undefined,
+            emitAdjacency: undefined,
+            includeViaResources: ['via-ok'],
+            excludeViaResources: ['via-skip'],
+            requireViaResources: ['via-required'],
           },
         },
       ],
@@ -1490,6 +1508,10 @@ describe('DeriveProjectionGraph', () => {
             relationships: {
               maxDepth: 4,
               minEvidence: 2,
+              emitAdjacency: true,
+              includeViaResources: ['aws_lambda_*'],
+              excludeViaResources: ['aws_kms_key'],
+              requireViaResources: ['aws_lambda_event_source_mapping'],
             },
           },
         ],
@@ -1510,6 +1532,10 @@ describe('DeriveProjectionGraph', () => {
           relationships: {
             maxDepth: 4,
             minEvidence: 2,
+            emitAdjacency: true,
+            includeViaResources: ['aws_lambda_*'],
+            excludeViaResources: ['aws_kms_key'],
+            requireViaResources: ['aws_lambda_event_source_mapping'],
           },
         },
       ],
@@ -1760,7 +1786,14 @@ describe('DeriveProjectionGraph', () => {
       [sourceProjectionId, resolved],
       [
         asNodeId('projection-depth-limited'),
-        { ...resolved, relationships: { maxDepth: 1, minEvidence: 1 } },
+        {
+          ...resolved,
+          relationships: {
+            ...resolved.relationships,
+            maxDepth: 1,
+            minEvidence: 1,
+          },
+        },
       ],
     ]);
     const projectionRootNodes = new Map([
@@ -1791,7 +1824,7 @@ describe('DeriveProjectionGraph', () => {
     expect(targetEvidence).toMatchObject({
       evidenceCount: 2,
       shortestPathLength: 1,
-      viaResourceTypes: ['aws_iam_role'],
+      viaResourceTypes: ['aws_sqs_queue', 'aws_iam_role'],
     });
 
     const applyRule = createRule({
@@ -1821,6 +1854,107 @@ describe('DeriveProjectionGraph', () => {
           tgProjectionNodeIdFrom(DefaultProjectionLayers.Core, 'target:target'),
     );
     expect(derivedEdge).toBeUndefined();
+  });
+
+  it('should infer adjacency when another projection is reached through one of its members', () => {
+    const sourceProjectionId = asNodeId('projection-source');
+    const targetProjectionId = asNodeId('projection-target');
+    const sourceRootId = asNodeId('source-root');
+    const targetRootId = asNodeId('target-root');
+    const targetMemberId = asNodeId('target-member');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [sourceRootId]: {
+          id: sourceRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.source',
+            resource: 'aws_sqs_queue',
+            name: 'source',
+          },
+        },
+        [targetRootId]: {
+          id: targetRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.target',
+            resource: 'aws_lambda_function',
+            name: 'target',
+          },
+        },
+        [targetMemberId]: {
+          id: targetMemberId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_event_source_mapping.bridge',
+            resource: 'aws_lambda_event_source_mapping',
+            name: 'bridge',
+          },
+        },
+      },
+      edges: [
+        {
+          id: asEdgeId('source-bridge'),
+          from: sourceRootId,
+          to: targetMemberId,
+        },
+        {
+          id: asEdgeId('bridge-target'),
+          from: targetMemberId,
+          to: targetRootId,
+        },
+      ],
+    };
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.sqs',
+          rootNode: { any: true },
+          relationships: {
+            maxDepth: 2,
+            minEvidence: 1,
+            requireViaResources: ['aws_lambda_event_source_mapping'],
+          },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+
+    const evidence = helpers.inferAdjacencies(
+      new Map([
+        [sourceProjectionId, resolved],
+        [targetProjectionId, resolved],
+      ]),
+      new Map([
+        [sourceProjectionId, sourceRootId],
+        [targetProjectionId, targetRootId],
+      ]),
+      new Map([
+        [sourceProjectionId, {}],
+        [targetProjectionId, {}],
+      ]),
+      new Map([
+        [sourceRootId, new Set([sourceProjectionId])],
+        [targetRootId, new Set([targetProjectionId])],
+        [targetMemberId, new Set([targetProjectionId])],
+      ]),
+      adapter,
+    );
+
+    expect(
+      evidence.get(
+        `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
+      ),
+    ).toMatchObject({
+      evidenceCount: 2,
+      shortestPathLength: 1,
+      viaResourceTypes: ['aws_lambda_event_source_mapping'],
+    });
   });
 
   it('should cover membership revisit and relationship depth-limit helper branches', () => {
@@ -1907,7 +2041,14 @@ describe('DeriveProjectionGraph', () => {
       new Map([
         [
           projectionNodeId,
-          { ...resolved, relationships: { maxDepth: 1, minEvidence: 1 } },
+          {
+            ...resolved,
+            relationships: {
+              ...resolved.relationships,
+              maxDepth: 1,
+              minEvidence: 1,
+            },
+          },
         ],
       ]),
       new Map([[projectionNodeId, rootId]]),
@@ -1931,7 +2072,14 @@ describe('DeriveProjectionGraph', () => {
         new Map([
           [
             projectionNodeId,
-            { ...resolved, relationships: { maxDepth: 0, minEvidence: 1 } },
+            {
+              ...resolved,
+              relationships: {
+                ...resolved.relationships,
+                maxDepth: 0,
+                minEvidence: 1,
+              },
+            },
           ],
         ]),
         new Map([[projectionNodeId, rootId]]),
@@ -2084,7 +2232,14 @@ describe('DeriveProjectionGraph', () => {
         new Map([
           [
             sourceProjectionId,
-            { ...resolved, relationships: { maxDepth: 0, minEvidence: 1 } },
+            {
+              ...resolved,
+              relationships: {
+                ...resolved.relationships,
+                maxDepth: 0,
+                minEvidence: 1,
+              },
+            },
           ],
         ]),
         new Map([[sourceProjectionId, sourceRootId]]),
@@ -2238,5 +2393,131 @@ describe('DeriveProjectionGraph', () => {
       'aws_apigatewayv2_integration',
       'aws_lambda_permission',
     ]);
+  });
+
+  it('should filter inferred adjacency paths by relationship via-resource rules', () => {
+    const sourceRootId = asNodeId('source-root');
+    const targetRootId = asNodeId('target-root');
+    const kmsId = asNodeId('kms');
+    const lambdaEventSourceMappingId = asNodeId('lambda-event-source-mapping');
+    const logGroupId = asNodeId('log-group');
+    const sourceProjectionId = asNodeId('projection-source');
+    const targetProjectionId = asNodeId('projection-target');
+
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [sourceRootId]: {
+          id: sourceRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.source',
+            resource: 'aws_lambda_function',
+            name: 'source',
+          },
+        },
+        [targetRootId]: {
+          id: targetRootId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.target',
+            resource: 'aws_lambda_function',
+            name: 'target',
+          },
+        },
+        [kmsId]: {
+          id: kmsId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_kms_key.shared',
+            resource: 'aws_kms_key',
+            name: 'shared',
+          },
+        },
+        [lambdaEventSourceMappingId]: {
+          id: lambdaEventSourceMappingId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_event_source_mapping.bridge',
+            resource: 'aws_lambda_event_source_mapping',
+            name: 'bridge',
+          },
+        },
+        [logGroupId]: {
+          id: logGroupId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_cloudwatch_log_group.shared',
+            resource: 'aws_cloudwatch_log_group',
+            name: 'shared',
+          },
+        },
+      },
+      edges: [
+        { id: asEdgeId('source-kms'), from: sourceRootId, to: kmsId },
+        { id: asEdgeId('kms-target'), from: kmsId, to: targetRootId },
+        {
+          id: asEdgeId('source-esm'),
+          from: sourceRootId,
+          to: lambdaEventSourceMappingId,
+        },
+        {
+          id: asEdgeId('esm-target'),
+          from: lambdaEventSourceMappingId,
+          to: targetRootId,
+        },
+        { id: asEdgeId('source-log'), from: sourceRootId, to: logGroupId },
+        { id: asEdgeId('log-target'), from: logGroupId, to: targetRootId },
+      ],
+    };
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+    const rule = createRule({
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: { any: true },
+          relationships: {
+            maxDepth: 2,
+            minEvidence: 1,
+            includeViaResources: ['aws_lambda_*', 'aws_kms_key'],
+            excludeViaResources: ['aws_kms_key'],
+            requireViaResources: ['aws_lambda_event_source_mapping'],
+          },
+        },
+      ],
+    });
+    const helpers = asHarness(rule);
+    const resolved = helpers.resolveProjections()[0];
+
+    const evidence = helpers.inferAdjacencies(
+      new Map([
+        [sourceProjectionId, resolved],
+        [targetProjectionId, resolved],
+      ]),
+      new Map([
+        [sourceProjectionId, sourceRootId],
+        [targetProjectionId, targetRootId],
+      ]),
+      new Map([
+        [sourceProjectionId, {}],
+        [targetProjectionId, {}],
+      ]),
+      new Map([
+        [sourceRootId, new Set([sourceProjectionId])],
+        [targetRootId, new Set([targetProjectionId])],
+      ]),
+      adapter,
+    );
+    const adjacencyEvidence = evidence.get(
+      `${String(sourceProjectionId)}->${String(targetProjectionId)}`,
+    );
+
+    expect(adjacencyEvidence?.evidenceCount).toBe(1);
+    expect(adjacencyEvidence?.shortestPathLength).toBe(2);
+    expect(adjacencyEvidence?.viaResourceTypes).toEqual([
+      'aws_lambda_event_source_mapping',
+    ]);
+    expect(adjacencyEvidence?.emitAdjacency).toBe(false);
   });
 });

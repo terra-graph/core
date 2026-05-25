@@ -28,6 +28,10 @@ type ProjectionMembershipOptions = {
 type ProjectionRelationshipOptions = {
   maxDepth?: number;
   minEvidence?: number;
+  emitAdjacency?: boolean;
+  includeViaResources?: string[];
+  excludeViaResources?: string[];
+  requireViaResources?: string[];
 };
 
 export const ProjectionInstanceStrategies = {
@@ -72,6 +76,7 @@ type RelationshipEvidence = {
     TgProjectionInferenceEvidence['viaResourceTypes']
   >;
   evidenceKeys: Set<string>;
+  emitAdjacency: boolean;
 };
 
 type QueueItem = {
@@ -485,7 +490,6 @@ export class DeriveProjectionGraph extends NodeRule {
     const projectionRootNodes = new Map<NodeId, NodeId>();
     const projectionInstances = new Map<NodeId, ProjectionInstance>();
     const memberToProjections = new Map<NodeId, Set<NodeId>>();
-    const rootToProjections = new Map<NodeId, Set<NodeId>>();
 
     for (const projection of resolved) {
       for (const rootNodeId of rootNodeIdsByProjection.get(
@@ -568,11 +572,6 @@ export class DeriveProjectionGraph extends NodeRule {
             projectionNodeId,
             rootNodeId,
           );
-          this.addProjectionRoot(
-            rootToProjections,
-            projectionNodeId,
-            rootNodeId,
-          );
 
           updated = updated.setEdge(
             edgeIdFrom(
@@ -625,7 +624,7 @@ export class DeriveProjectionGraph extends NodeRule {
       projectionDefinitions,
       projectionRootNodes,
       projectionInstances,
-      rootToProjections,
+      memberToProjections,
       graph,
     );
 
@@ -643,6 +642,7 @@ export class DeriveProjectionGraph extends NodeRule {
             layer: evidence.layer,
             adjacency: {
               source: 'derived',
+              emit: evidence.emitAdjacency || undefined,
               evidence: {
                 derivedBy: DefaultProjectionInferenceMethods.AnchorPath,
                 evidenceCount: evidence.evidenceCount,
@@ -670,8 +670,15 @@ export class DeriveProjectionGraph extends NodeRule {
           projection.membership?.stopAtOtherRootNodes ?? true,
       },
       relationships: {
-        maxDepth: projection.relationships?.maxDepth ?? 3,
+        maxDepth: projection.relationships?.maxDepth ?? 0,
         minEvidence: projection.relationships?.minEvidence ?? 1,
+        emitAdjacency: projection.relationships?.emitAdjacency ?? false,
+        includeViaResources:
+          projection.relationships?.includeViaResources ?? [],
+        excludeViaResources:
+          projection.relationships?.excludeViaResources ?? [],
+        requireViaResources:
+          projection.relationships?.requireViaResources ?? [],
       },
       rootNodeQuery: NodeQuery.from(projection.rootNode),
     }));
@@ -782,7 +789,7 @@ export class DeriveProjectionGraph extends NodeRule {
     projectionDefinitions: Map<NodeId, ResolvedProjectionDefinition>,
     projectionRootNodes: Map<NodeId, NodeId>,
     projectionInstances: Map<NodeId, ProjectionInstance>,
-    rootToProjections: Map<NodeId, Set<NodeId>>,
+    memberToProjections: Map<NodeId, Set<NodeId>>,
     graph: AdapterOperations,
   ): Map<string, RelationshipEvidence & { minEvidence: number }> {
     const evidence = new Map<
@@ -818,12 +825,30 @@ export class DeriveProjectionGraph extends NodeRule {
             continue;
           }
           const nextDepth = current.depth + 1;
-          const nextRootProjections = rootToProjections.get(next) ?? new Set();
-          const otherProjectionIds = [...nextRootProjections].filter(
+          const nextMemberProjections =
+            memberToProjections.get(next) ?? new Set();
+          const otherProjectionIds = [...nextMemberProjections].filter(
             (projectionNodeId) => projectionNodeId !== sourceProjectionId,
           );
 
           if (otherProjectionIds.length > 0) {
+            const fullPath = [...current.path, next];
+            const viaResourceTypes = this.collectRelationshipViaResourceTypes(
+              fullPath,
+              next,
+              otherProjectionIds,
+              projectionRootNodes,
+              graph,
+            );
+            if (
+              !this.shouldIncludeRelationshipPath(
+                viaResourceTypes,
+                projection.relationships,
+              )
+            ) {
+              continue;
+            }
+
             for (const targetProjectionId of otherProjectionIds) {
               const sourceInstance =
                 projectionInstances.get(sourceProjectionId);
@@ -842,7 +867,6 @@ export class DeriveProjectionGraph extends NodeRule {
                 targetProjectionId,
               );
               const key = this.buildProjectionPairKey(from, to);
-              const fullPath = [...current.path, next];
               const evidenceKey = this.buildEvidencePathKey(fullPath);
               const existing = evidence.get(key) ?? {
                 layer: projection.layer,
@@ -851,6 +875,7 @@ export class DeriveProjectionGraph extends NodeRule {
                 viaResourceTypes: [],
                 evidenceKeys: new Set<string>(),
                 minEvidence: projection.relationships.minEvidence,
+                emitAdjacency: projection.relationships.emitAdjacency,
               };
               if (existing.evidenceKeys.has(evidenceKey)) {
                 continue;
@@ -866,10 +891,12 @@ export class DeriveProjectionGraph extends NodeRule {
                 existing.minEvidence,
                 projection.relationships.minEvidence,
               );
+              existing.emitAdjacency =
+                existing.emitAdjacency ||
+                projection.relationships.emitAdjacency;
               this.addViaResourceTypes(
                 existing.viaResourceTypes,
-                fullPath.slice(1, -1),
-                graph,
+                viaResourceTypes,
               );
               evidence.set(key, existing);
             }
@@ -907,16 +934,98 @@ export class DeriveProjectionGraph extends NodeRule {
 
   private addViaResourceTypes(
     target: string[],
-    viaNodeIds: NodeId[],
-    graph: AdapterOperations,
+    viaResourceTypes: string[],
   ): void {
-    for (const viaNodeId of viaNodeIds) {
-      const resource = graph.getNodeAttributes(viaNodeId)?.terraform?.resource;
-      if (!resource || target.includes(resource)) {
+    for (const resource of viaResourceTypes) {
+      if (target.includes(resource)) {
         continue;
       }
       target.push(resource);
     }
+  }
+
+  private collectViaResourceTypes(
+    viaNodeIds: NodeId[],
+    graph: AdapterOperations,
+  ): string[] {
+    const resources: string[] = [];
+    for (const viaNodeId of viaNodeIds) {
+      const resource = graph.getNodeAttributes(viaNodeId)?.terraform?.resource;
+      if (!resource || resources.includes(resource)) {
+        continue;
+      }
+      resources.push(resource);
+    }
+    return resources;
+  }
+
+  private collectRelationshipViaResourceTypes(
+    path: NodeId[],
+    terminalNodeId: NodeId,
+    targetProjectionIds: NodeId[],
+    projectionRootNodes: Map<NodeId, NodeId>,
+    graph: AdapterOperations,
+  ): string[] {
+    const resources = this.collectViaResourceTypes(path.slice(1, -1), graph);
+    const touchesTargetMember = targetProjectionIds.some(
+      (projectionNodeId) =>
+        projectionRootNodes.get(projectionNodeId) !== terminalNodeId,
+    );
+    if (!touchesTargetMember) {
+      return resources;
+    }
+
+    const terminalResource =
+      graph.getNodeAttributes(terminalNodeId)?.terraform?.resource;
+    if (!terminalResource || resources.includes(terminalResource)) {
+      return resources;
+    }
+
+    resources.push(terminalResource);
+    return resources;
+  }
+
+  private shouldIncludeRelationshipPath(
+    viaResourceTypes: string[],
+    relationships: ResolvedProjectionDefinition['relationships'],
+  ): boolean {
+    if (
+      viaResourceTypes.some((resource) =>
+        this.matchesAnyResourcePattern(
+          resource,
+          relationships.excludeViaResources,
+        ),
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      relationships.includeViaResources.length > 0 &&
+      viaResourceTypes.some(
+        (resource) =>
+          !this.matchesAnyResourcePattern(
+            resource,
+            relationships.includeViaResources,
+          ),
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      relationships.requireViaResources.length > 0 &&
+      !viaResourceTypes.some((resource) =>
+        this.matchesAnyResourcePattern(
+          resource,
+          relationships.requireViaResources,
+        ),
+      )
+    ) {
+      return false;
+    }
+
+    return true;
   }
 
   private buildProjectionPairKey(from: NodeId, to: NodeId): string {
@@ -1116,16 +1225,6 @@ export class DeriveProjectionGraph extends NodeRule {
     memberToProjections.set(memberId, projections);
   }
 
-  private addProjectionRoot(
-    rootToProjections: Map<NodeId, Set<NodeId>>,
-    projectionNodeId: NodeId,
-    rootNodeId: NodeId,
-  ) {
-    const projections = rootToProjections.get(rootNodeId) ?? new Set<NodeId>();
-    projections.add(projectionNodeId);
-    rootToProjections.set(rootNodeId, projections);
-  }
-
   private buildMembershipEdgeAttributes(
     layer: TgProjectionLayer,
     relation: TgProjectionMembershipRelation,
@@ -1225,6 +1324,31 @@ export class DeriveProjectionGraph extends NodeRule {
                 typeof entry.relationships.minEvidence === 'number'
                   ? entry.relationships.minEvidence
                   : undefined,
+              emitAdjacency:
+                typeof entry.relationships.emitAdjacency === 'boolean'
+                  ? entry.relationships.emitAdjacency
+                  : undefined,
+              includeViaResources: Array.isArray(
+                entry.relationships.includeViaResources,
+              )
+                ? entry.relationships.includeViaResources.filter(
+                    (item): item is string => typeof item === 'string',
+                  )
+                : undefined,
+              excludeViaResources: Array.isArray(
+                entry.relationships.excludeViaResources,
+              )
+                ? entry.relationships.excludeViaResources.filter(
+                    (item): item is string => typeof item === 'string',
+                  )
+                : undefined,
+              requireViaResources: Array.isArray(
+                entry.relationships.requireViaResources,
+              )
+                ? entry.relationships.requireViaResources.filter(
+                    (item): item is string => typeof item === 'string',
+                  )
+                : undefined,
             }
           : undefined,
       } satisfies ProjectionDefinition;

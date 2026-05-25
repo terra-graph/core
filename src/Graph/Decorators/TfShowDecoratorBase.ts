@@ -48,6 +48,9 @@ export abstract class TfShowDecoratorBase<TInput, TParsed>
 
   protected abstract parsePayload(raw: unknown): TParsed;
   protected abstract resolveRootModule(parsed: TParsed): TerraformShowModule;
+  protected afterDecorate(graph: TgGraph, _parsed: TParsed): TgGraph {
+    return graph;
+  }
 
   public decorate(graph: Readonly<TgGraph>, input: string | TInput): TgGraph {
     const parsed = this.parsePayload(parseJsonInput(input, this.decoratorName));
@@ -55,7 +58,10 @@ export abstract class TfShowDecoratorBase<TInput, TParsed>
       collectShowResources(this.resolveRootModule(parsed)),
     );
 
-    return decorateTerraformState(graph, instancesByAddress, this.source);
+    return this.afterDecorate(
+      decorateTerraformState(graph, instancesByAddress, this.source),
+      parsed,
+    );
   }
 }
 

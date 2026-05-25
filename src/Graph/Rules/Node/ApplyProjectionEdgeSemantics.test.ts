@@ -69,6 +69,9 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
           attributes: {
             projection: {
               layer: 'core',
+              adjacency: {
+                source: 'derived',
+              },
               relationship: {
                 relation: 'depends_on',
                 source: 'derived',
@@ -107,9 +110,12 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
       semantic: 'depends_on',
       role: 'primary',
     });
+    expect(
+      updated.getEdgeAttributes(relationshipEdgeId)?.projection?.adjacency,
+    ).toBeUndefined();
   });
 
-  it('should not derive semantic hints for neutral projection adjacency edges', () => {
+  it('should drop neutral projection adjacency edges by default', () => {
     const sourceProjectionId = asNodeId('projection-source');
     const targetProjectionId = asNodeId('projection-target');
     const adjacencyEdgeId = asEdgeId('projection-adjacency');
@@ -168,6 +174,75 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
       updated = rule.apply(nodeId, node, updated);
     }
 
+    expect(() => updated.getEdgeAttributes(adjacencyEdgeId)).toThrow();
+  });
+
+  it('should retain explicitly emitted neutral adjacency edges', () => {
+    const sourceProjectionId = asNodeId('projection-source');
+    const targetProjectionId = asNodeId('projection-target');
+    const adjacencyEdgeId = asEdgeId('projection-adjacency');
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [sourceProjectionId]: {
+          id: sourceProjectionId,
+          projection: {
+            layer: 'core',
+            address: 'service:handler',
+            label: 'Handler',
+          },
+        },
+        [targetProjectionId]: {
+          id: targetProjectionId,
+          projection: {
+            layer: 'core',
+            address: 'store:table',
+            label: 'Table',
+          },
+        },
+      },
+      edges: [
+        {
+          id: adjacencyEdgeId,
+          from: sourceProjectionId,
+          to: targetProjectionId,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+                emit: true,
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const adapter: AdapterOperations = new GraphologyAdapter(
+      new DirectedGraph(),
+    ).withTgGraph(graph);
+    const rule = new ApplyProjectionEdgeSemantics();
+
+    let updated = adapter;
+    for (const nodeId of updated.nodeIds()) {
+      const node = updated.getNodeAttributes(nodeId);
+      if (!node) {
+        continue;
+      }
+
+      rule.match(nodeId, node, updated);
+      updated = rule.apply(nodeId, node, updated);
+    }
+
+    expect(
+      updated.getEdgeAttributes(adjacencyEdgeId)?.projection?.adjacency,
+    ).toEqual({
+      source: 'derived',
+      emit: true,
+    });
     expect(updated.getEdgeAttributes(adjacencyEdgeId)?.hints?.semantic).toBe(
       undefined,
     );
