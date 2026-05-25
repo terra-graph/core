@@ -1,3 +1,10 @@
+# [1.0.0-rc.27](https://github.com/terra-graph/core/compare/v1.0.0-rc.26...v1.0.0-rc.27) (2026-05-25)
+
+
+### Bug Fixes
+
+* remove adjaceny concept for projection edge determination ([e4c73a7](https://github.com/terra-graph/core/commit/e4c73a72e14834d3bb3025be4df54743fcb281e6))
+
 # [1.0.0-rc.26](https://github.com/terra-graph/core/compare/v1.0.0-rc.25...v1.0.0-rc.26) (2026-05-22)
 
 
