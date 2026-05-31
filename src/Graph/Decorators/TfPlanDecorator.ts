@@ -16,6 +16,11 @@ type TerraformPlanConfigurationModule = {
   module_calls?: Record<string, { module?: TerraformPlanConfigurationModule }>;
 };
 
+type CollectedConfigurationResource = {
+  address: string;
+  expressions?: Record<string, unknown>;
+};
+
 const TerraformPlanConfigurationResourceSchema = z.object({
   address: z.string().min(1),
   expressions: z.record(z.unknown()).optional(),
@@ -127,13 +132,26 @@ export class TfPlanDecorator extends TfShowDecoratorBase<
 
 const collectConfigurationResources = (
   module: TerraformPlanConfigurationModule,
-): TerraformPlanConfigurationResource[] => {
-  const resources = [...(module.resources ?? [])];
-  for (const call of Object.values(module.module_calls ?? {})) {
+  modulePrefix = '',
+): CollectedConfigurationResource[] => {
+  const resources: CollectedConfigurationResource[] = (
+    module.resources ?? []
+  ).map((resource) => ({
+    address: qualifyReference(resource.address, modulePrefix),
+    expressions: qualifyResourceExpressions(resource.expressions, modulePrefix),
+  }));
+  for (const [callName, call] of Object.entries(module.module_calls ?? {})) {
     if (!call.module) {
       continue;
     }
-    resources.push(...collectConfigurationResources(call.module));
+    resources.push(
+      ...collectConfigurationResources(
+        call.module,
+        modulePrefix
+          ? `${modulePrefix}.module.${callName}`
+          : `module.${callName}`,
+      ),
+    );
   }
   return resources;
 };
@@ -174,6 +192,56 @@ const collectNestedReferences = (value: unknown, target: Set<string>): void => {
   for (const entry of Object.values(value)) {
     collectNestedReferences(entry, target);
   }
+};
+
+const qualifyResourceExpressions = (
+  expressions: TerraformPlanConfigurationResource['expressions'],
+  modulePrefix: string,
+): Record<string, unknown> | undefined => {
+  if (!expressions) {
+    return undefined;
+  }
+
+  return qualifyExpressionReferences(expressions, modulePrefix) as Record<
+    string,
+    unknown
+  >;
+};
+
+const qualifyExpressionReferences = (
+  value: unknown,
+  modulePrefix: string,
+): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      qualifyExpressionReferences(entry, modulePrefix),
+    );
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const next = Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      qualifyExpressionReferences(entry, modulePrefix),
+    ]),
+  );
+
+  if (
+    'references' in value &&
+    Array.isArray((value as { references?: unknown }).references)
+  ) {
+    next.references = (value as { references: unknown[] }).references.map(
+      (reference) =>
+        typeof reference === 'string'
+          ? qualifyReference(reference, modulePrefix)
+          : reference,
+    );
+  }
+
+  return next;
 };
 
 const buildNodesByAddress = (graph: TgGraph): Map<string, NodeId> => {
@@ -229,8 +297,41 @@ const toModuleOutputAddress = (reference: string): string | undefined => {
     return undefined;
   }
 
-  return `${segments.slice(0, 2).join('.')}.output.${segments.slice(2).join('.')}`;
+  let modulePrefixLength = 0;
+  while (
+    modulePrefixLength + 1 < segments.length &&
+    segments[modulePrefixLength] === 'module'
+  ) {
+    modulePrefixLength += 2;
+  }
+
+  if (modulePrefixLength < 2 || modulePrefixLength >= segments.length) {
+    return undefined;
+  }
+
+  return `${segments.slice(0, modulePrefixLength).join('.')}.output.${segments.slice(modulePrefixLength).join('.')}`;
 };
 
 const normalizeAddress = (address: string): string =>
   address.replace(/\[[^\]]+\]/g, '');
+
+const qualifyReference = (reference: string, modulePrefix: string): string => {
+  if (!modulePrefix) {
+    return reference;
+  }
+
+  const rootScopes = [
+    'count.',
+    'each.',
+    'local.',
+    'path.',
+    'self.',
+    'terraform.',
+    'var.',
+  ];
+  if (rootScopes.some((scope) => reference.startsWith(scope))) {
+    return reference;
+  }
+
+  return `${modulePrefix}.${reference}`;
+};

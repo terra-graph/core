@@ -582,4 +582,147 @@ describe('TfPlanDecorator.decorate', () => {
       ),
     ).toBeDefined();
   });
+
+  it('shoud add missing dependency edges for module-local configuration references', () => {
+    const graph = {
+      ...buildGraph([
+        'module.copy_to_ifr.aws_pipes_pipe.event_pipe',
+        'module.copy_to_ifr.aws_sqs_queue.event_queue',
+        'module.copy_to_ifr.aws_sfn_state_machine.state_machine',
+      ]),
+      edges: [],
+    } satisfies TgGraph;
+    const decorator = new TfPlanDecorator();
+
+    const result = decorator.decorate(graph, {
+      planned_values: {
+        root_module: {
+          resources: [],
+        },
+      },
+      configuration: {
+        root_module: {
+          module_calls: {
+            copy_to_ifr: {
+              module: {
+                resources: [
+                  {
+                    address: 'aws_pipes_pipe.event_pipe',
+                    expressions: {
+                      source: {
+                        references: [
+                          'aws_sqs_queue.event_queue.arn',
+                          'aws_sqs_queue.event_queue',
+                        ],
+                      },
+                      target: {
+                        references: [
+                          'aws_sfn_state_machine.state_machine.arn',
+                          'aws_sfn_state_machine.state_machine',
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(
+      result.edges.find(
+        (edge) =>
+          edge.from ===
+            toResourceNodeId('module.copy_to_ifr.aws_pipes_pipe.event_pipe') &&
+          edge.to ===
+            toResourceNodeId('module.copy_to_ifr.aws_sqs_queue.event_queue'),
+      ),
+    ).toBeDefined();
+    expect(
+      result.edges.find(
+        (edge) =>
+          edge.from ===
+            toResourceNodeId('module.copy_to_ifr.aws_pipes_pipe.event_pipe') &&
+          edge.to ===
+            toResourceNodeId(
+              'module.copy_to_ifr.aws_sfn_state_machine.state_machine',
+            ),
+      ),
+    ).toBeDefined();
+  });
+
+  it('shoud support root resources referencing module outputs and module resources referencing nested module outputs', () => {
+    const graph = {
+      ...buildGraph([
+        'aws_cloudwatch_event_target.copy_to_ifr',
+        'module.copy_to_ifr.output.event_queue_arn',
+        'module.copy_to_ifr.aws_pipes_pipe.event_pipe',
+        'module.copy_to_ifr.module.tags.output.queue_arn',
+      ]),
+      edges: [],
+    } satisfies TgGraph;
+    const decorator = new TfPlanDecorator();
+
+    const result = decorator.decorate(graph, {
+      planned_values: {
+        root_module: {
+          resources: [],
+        },
+      },
+      configuration: {
+        root_module: {
+          resources: [
+            {
+              address: 'aws_cloudwatch_event_target.copy_to_ifr',
+              expressions: {
+                arn: {
+                  references: [
+                    'module.copy_to_ifr.event_queue_arn',
+                    'module.copy_to_ifr',
+                  ],
+                },
+              },
+            },
+          ],
+          module_calls: {
+            copy_to_ifr: {
+              module: {
+                resources: [
+                  {
+                    address: 'aws_pipes_pipe.event_pipe',
+                    expressions: {
+                      queue_output: {
+                        references: ['module.tags.queue_arn', 'module.tags'],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(
+      result.edges.find(
+        (edge) =>
+          edge.from ===
+            toResourceNodeId('aws_cloudwatch_event_target.copy_to_ifr') &&
+          edge.to ===
+            toResourceNodeId('module.copy_to_ifr.output.event_queue_arn'),
+      ),
+    ).toBeDefined();
+    expect(
+      result.edges.find(
+        (edge) =>
+          edge.from ===
+            toResourceNodeId('module.copy_to_ifr.aws_pipes_pipe.event_pipe') &&
+          edge.to ===
+            toResourceNodeId('module.copy_to_ifr.module.tags.output.queue_arn'),
+      ),
+    ).toBeDefined();
+  });
 });
