@@ -85,13 +85,38 @@ export class TfPlanDecorator extends TfShowDecoratorBase<
       return graph;
     }
 
+    const collectedResources = collectConfigurationResources(rootModule);
     const nodesByAddress = buildNodesByAddress(graph);
+    const nextNodes = { ...graph.nodes };
+    for (const resource of collectedResources) {
+      const nodeId = resolveNodeId(resource.address, nodesByAddress);
+      if (!nodeId) {
+        continue;
+      }
+
+      const currentNode = nextNodes[String(nodeId)];
+      if (!currentNode) {
+        continue;
+      }
+
+      nextNodes[String(nodeId)] = {
+        ...currentNode,
+        terraform: {
+          ...currentNode.terraform,
+          configuration: {
+            source: 'plan_show',
+            expressions: resource.expressions,
+          },
+        },
+      };
+    }
+
     const nextEdges = [...graph.edges];
     const seen = new Set(
       nextEdges.map((edge) => `${String(edge.from)}->${String(edge.to)}`),
     );
 
-    for (const resource of collectConfigurationResources(rootModule)) {
+    for (const resource of collectedResources) {
       const sourceNodeId = resolveNodeId(resource.address, nodesByAddress);
       if (!sourceNodeId) {
         continue;
@@ -125,6 +150,7 @@ export class TfPlanDecorator extends TfShowDecoratorBase<
 
     return {
       ...graph,
+      nodes: nextNodes,
       edges: nextEdges,
     };
   }

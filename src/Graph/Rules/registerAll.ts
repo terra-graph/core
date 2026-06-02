@@ -14,5 +14,6 @@ import './Edge/EdgeSemantic.js';
 import './Edge/EdgeSemanticLegend.js';
 import './Edge/ExplicitEdge.js';
 import './Edge/ProjectionRelationshipSemantic.js';
+import './Edge/ProjectionSemanticFactRelationship.js';
 import './Edge/RemoveEdge.js';
 import './Edge/RemoveSelfLoopEdges.js';

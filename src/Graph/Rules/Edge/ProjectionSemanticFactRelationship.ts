@@ -4,41 +4,41 @@ import {
   TgEdgeAttributes,
   TgNodeAttributes,
   TgProjectionRelationshipRelation,
+  TgSemanticFact,
 } from '../../TgGraph.js';
 import { EdgeRule } from '../Rule.js';
 import { EdgeRuleConfig } from '../RuleConfig.js';
 
-type ProjectionAdjacencyRelationshipOptions = {
+type ProjectionSemanticFactRelationshipOptions = {
+  fact: string;
   relation: TgProjectionRelationshipRelation;
   overwrite?: boolean;
   enforceDirection?: boolean;
 };
 
-type NormalizedProjectionAdjacencyRelationshipOptions = {
+type NormalizedProjectionSemanticFactRelationshipOptions = {
+  fact: string;
   relation: TgProjectionRelationshipRelation;
   overwrite: boolean;
   enforceDirection: boolean;
 };
 
-const hasProjectionSemanticsCandidate = (
-  edge: TgEdgeAttributes,
-): edge is TgEdgeAttributes & {
-  projection: NonNullable<TgEdgeAttributes['projection']> & {
-    adjacency?: NonNullable<
-      NonNullable<TgEdgeAttributes['projection']>['adjacency']
-    >;
-    relationship?: NonNullable<
-      NonNullable<TgEdgeAttributes['projection']>['relationship']
-    >;
-  };
-} =>
-  edge.projection?.adjacency !== undefined ||
-  edge.projection?.relationship !== undefined;
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
 
 const isNonEmptyRelation = (
   value: unknown,
-): value is TgProjectionRelationshipRelation =>
-  typeof value === 'string' && value.trim().length > 0;
+): value is TgProjectionRelationshipRelation => isNonEmptyString(value);
+
+const findSemanticFact = (
+  edge: TgEdgeAttributes,
+  factKind: string,
+  from: NodeId,
+  to: NodeId,
+): TgSemanticFact | undefined =>
+  edge.projection?.semantics?.facts?.find(
+    (fact) => fact.kind === factKind && fact.from === from && fact.to === to,
+  );
 
 const buildRelationshipAttributes = (
   edge: TgEdgeAttributes,
@@ -46,26 +46,30 @@ const buildRelationshipAttributes = (
 ) => ({
   ...edge.projection?.relationship,
   relation,
-  source:
-    edge.projection?.relationship?.source ?? edge.projection?.adjacency?.source,
+  source: edge.projection?.relationship?.source ?? 'derived',
   evidence:
     edge.projection?.relationship?.evidence ??
     edge.projection?.adjacency?.evidence,
 });
 
-export class ProjectionAdjacencyRelationship extends EdgeRule {
+export class ProjectionSemanticFactRelationship extends EdgeRule {
   constructor(config: EdgeRuleConfig) {
     if (config.options === undefined) {
       throw new Error(
-        `Rule '${ProjectionAdjacencyRelationship.name}' requires options in config`,
+        `Rule '${ProjectionSemanticFactRelationship.name}' requires options in config`,
       );
     }
 
     const options =
-      config.options as Partial<ProjectionAdjacencyRelationshipOptions>;
+      config.options as Partial<ProjectionSemanticFactRelationshipOptions>;
+    if (!isNonEmptyString(options.fact)) {
+      throw new Error(
+        `Rule '${ProjectionSemanticFactRelationship.name}' requires options.fact`,
+      );
+    }
     if (!isNonEmptyRelation(options.relation)) {
       throw new Error(
-        `Rule '${ProjectionAdjacencyRelationship.name}' requires options.relation`,
+        `Rule '${ProjectionSemanticFactRelationship.name}' requires options.relation`,
       );
     }
 
@@ -74,7 +78,7 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
       typeof options.overwrite !== 'boolean'
     ) {
       throw new Error(
-        `Rule '${ProjectionAdjacencyRelationship.name}' options.overwrite must be a boolean when provided`,
+        `Rule '${ProjectionSemanticFactRelationship.name}' options.overwrite must be a boolean when provided`,
       );
     }
 
@@ -83,7 +87,7 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
       typeof options.enforceDirection !== 'boolean'
     ) {
       throw new Error(
-        `Rule '${ProjectionAdjacencyRelationship.name}' options.enforceDirection must be a boolean when provided`,
+        `Rule '${ProjectionSemanticFactRelationship.name}' options.enforceDirection must be a boolean when provided`,
       );
     }
 
@@ -112,7 +116,7 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
     }
 
     const options = this.config
-      .options as NormalizedProjectionAdjacencyRelationshipOptions;
+      .options as NormalizedProjectionSemanticFactRelationshipOptions;
     const shouldOverwrite = options.overwrite;
     const shouldEnforceDirection = options.enforceDirection;
 
@@ -127,10 +131,11 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
       if (!this.matchesEdge(nodeId, node, targetId, target, current, updated)) {
         continue;
       }
-      if (!hasProjectionSemanticsCandidate(current)) {
+      if (!findSemanticFact(current, options.fact, nodeId, targetId)) {
         continue;
       }
-      const currentRelation = current.projection.relationship?.relation;
+
+      const currentRelation = current.projection?.relationship?.relation;
       if (!shouldOverwrite && isNonEmptyRelation(currentRelation)) {
         continue;
       }
@@ -138,7 +143,7 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
       updated = updated.setEdge(edgeId, nodeId, targetId, {
         ...current,
         projection: {
-          ...current.projection,
+          ...(current.projection ?? { layer: 'core' }),
           relationship: buildRelationshipAttributes(current, options.relation),
         },
       });
@@ -158,10 +163,11 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
         ) {
           continue;
         }
-        if (!hasProjectionSemanticsCandidate(current)) {
+        if (!findSemanticFact(current, options.fact, nodeId, sourceId)) {
           continue;
         }
-        const currentRelation = current.projection.relationship?.relation;
+
+        const currentRelation = current.projection?.relationship?.relation;
         if (
           !shouldOverwrite &&
           isNonEmptyRelation(currentRelation) &&
@@ -173,7 +179,7 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
         updated = updated.removeEdge(edgeId).setEdge(edgeId, nodeId, sourceId, {
           ...current,
           projection: {
-            ...current.projection,
+            ...(current.projection ?? { layer: 'core' }),
             relationship: buildRelationshipAttributes(
               current,
               options.relation,
@@ -187,4 +193,4 @@ export class ProjectionAdjacencyRelationship extends EdgeRule {
   }
 }
 
-EdgeRule.register(ProjectionAdjacencyRelationship);
+EdgeRule.register(ProjectionSemanticFactRelationship);

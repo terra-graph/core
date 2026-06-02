@@ -128,17 +128,41 @@ export type TgProjectionRelationship = {
   evidence?: TgProjectionInferenceEvidence;
 };
 
+export type TgSemanticFactSource = 'explicit_connection' | 'permission';
+
+export type TgSemanticFactConfidence = 'exact' | 'inferred' | 'capability';
+
+export type TgSemanticFact = {
+  kind: string;
+  from: NodeId;
+  to: NodeId;
+  source: TgSemanticFactSource;
+  confidence: TgSemanticFactConfidence;
+  decorator?: string;
+  attributes?: Record<string, unknown>;
+};
+
+export type TgEdgeSemantic = {
+  facts?: TgSemanticFact[];
+};
+
+export type TgProjectionSemantic = {
+  facts?: TgSemanticFact[];
+};
+
 export type TgEdgeProjection = {
   layer: TgProjectionLayer;
   membership?: TgProjectionMembership;
   adjacency?: TgProjectionAdjacency;
   relationship?: TgProjectionRelationship;
+  semantics?: TgProjectionSemantic;
 };
 
 export interface TgEdgeAttributes extends Record<string, unknown> {
   hints?: TgEdgeHints;
   legend?: TgEdgeLegendAttribute;
   renderHints?: TgEdgeRenderHints;
+  semantic?: TgEdgeSemantic;
   projection?: TgEdgeProjection;
   adapter?: Record<string, Record<string, unknown>>;
 }
@@ -167,6 +191,12 @@ export type TgNodeTerraform = {
   parentModuleName?: string;
   parentModuleNodeId?: NodeId;
   state?: TgNodeTerraformState;
+  configuration?: TgNodeTerraformConfiguration;
+};
+
+export type TgNodeTerraformConfiguration = {
+  source: 'plan_show';
+  expressions?: Record<string, unknown>;
 };
 
 export type TgNodeTerraformStateBase = {

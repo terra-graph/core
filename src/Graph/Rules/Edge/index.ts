@@ -7,5 +7,6 @@ export * from './EdgeSemanticLegend.js';
 export * from './EdgeSemantics.js';
 export * from './ExplicitEdge.js';
 export * from './ProjectionRelationshipSemantic.js';
+export * from './ProjectionSemanticFactRelationship.js';
 export * from './RemoveEdge.js';
 export * from './RemoveSelfLoopEdges.js';

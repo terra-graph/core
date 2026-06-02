@@ -6,56 +6,56 @@ import {
   asEdgeId,
   asNodeId,
 } from '../../TgGraph.js';
-import { ProjectionRelationshipSemantic } from './ProjectionRelationshipSemantic.js';
+import { ProjectionAdjacencyRelationship } from './ProjectionRelationshipSemantic.js';
 
-describe('ProjectionRelationshipSemantic.constructor', () => {
+describe('ProjectionAdjacencyRelationship.constructor', () => {
   it('shoud require options', () => {
     expect(
       () =>
-        new ProjectionRelationshipSemantic({
+        new ProjectionAdjacencyRelationship({
           edge: { from: { any: true }, to: { any: true } },
         }),
     ).toThrow(
-      `Rule 'ProjectionRelationshipSemantic' requires options in config`,
+      `Rule 'ProjectionAdjacencyRelationship' requires options in config`,
     );
   });
 
   it('shoud require options.relation', () => {
     expect(
       () =>
-        new ProjectionRelationshipSemantic({
+        new ProjectionAdjacencyRelationship({
           edge: { from: { any: true }, to: { any: true } },
           options: {},
         }),
     ).toThrow(
-      `Rule 'ProjectionRelationshipSemantic' requires options.relation`,
+      `Rule 'ProjectionAdjacencyRelationship' requires options.relation`,
     );
   });
 
   it('should validate overwrite and enforceDirection option types', () => {
     expect(
       () =>
-        new ProjectionRelationshipSemantic({
+        new ProjectionAdjacencyRelationship({
           edge: { from: { any: true }, to: { any: true } },
           options: { relation: 'routes', overwrite: 'yes' as never },
         }),
     ).toThrow(
-      `Rule 'ProjectionRelationshipSemantic' options.overwrite must be a boolean when provided`,
+      `Rule 'ProjectionAdjacencyRelationship' options.overwrite must be a boolean when provided`,
     );
 
     expect(
       () =>
-        new ProjectionRelationshipSemantic({
+        new ProjectionAdjacencyRelationship({
           edge: { from: { any: true }, to: { any: true } },
           options: { relation: 'routes', enforceDirection: 'yes' as never },
         }),
     ).toThrow(
-      `Rule 'ProjectionRelationshipSemantic' options.enforceDirection must be a boolean when provided`,
+      `Rule 'ProjectionAdjacencyRelationship' options.enforceDirection must be a boolean when provided`,
     );
   });
 });
 
-describe('ProjectionRelationshipSemantic.apply', () => {
+describe('ProjectionAdjacencyRelationship.apply', () => {
   const albId = asNodeId('projection-alb');
   const ecsId = asNodeId('projection-ecs');
 
@@ -120,7 +120,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       throw new Error('Missing ALB projection node');
     }
 
-    const rule = new ProjectionRelationshipSemantic({
+    const rule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: {
@@ -149,7 +149,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       result.getEdgeAttributes(edgeId)?.projection?.relationship?.relation,
     ).toBe('routes');
     expect(rule.serialize()).toEqual({
-      id: 'ProjectionRelationshipSemantic',
+      id: 'ProjectionAdjacencyRelationship',
       config: {
         edge: {
           from: {
@@ -262,14 +262,14 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       throw new Error('Missing ALB projection node');
     }
 
-    const unmatched = new ProjectionRelationshipSemantic({
+    const unmatched = new ProjectionAdjacencyRelationship({
       edge: { from: { nodeId: { eq: 'missing' } }, to: { any: true } },
       options: { relation: 'routes' },
     });
     unmatched.match(albId, albNode, adapter);
     expect(unmatched.apply(albId, albNode, adapter)).toBe(adapter);
 
-    const noOverwrite = new ProjectionRelationshipSemantic({
+    const noOverwrite = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
@@ -344,7 +344,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       throw new Error('Missing ALB projection node');
     }
 
-    const rule = new ProjectionRelationshipSemantic({
+    const rule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
@@ -434,7 +434,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       throw new Error('Missing ALB projection node');
     }
 
-    const rule = new ProjectionRelationshipSemantic({
+    const rule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
@@ -527,7 +527,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       throw new Error('Missing Lambda projection node');
     }
 
-    const rule = new ProjectionRelationshipSemantic({
+    const rule = new ProjectionAdjacencyRelationship({
       edge: {
         and: [
           {
@@ -638,7 +638,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       throw new Error('Missing ALB projection node');
     }
 
-    const assignRule = new ProjectionRelationshipSemantic({
+    const assignRule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
@@ -655,7 +655,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       assigned.getEdgeAttributes(outEdgeId)?.projection?.relationship?.relation,
     ).toBe('routes');
 
-    const recheckRule = new ProjectionRelationshipSemantic({
+    const recheckRule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
@@ -683,7 +683,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
     };
     expect(recheckRule.apply(albId, recheckNode, adapter)).toBe(adapter);
 
-    const plainRule = new ProjectionRelationshipSemantic({
+    const plainRule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
@@ -785,7 +785,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       throw new Error('Missing ALB projection node');
     }
 
-    const rule = new ProjectionRelationshipSemantic({
+    const rule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
@@ -902,7 +902,7 @@ describe('ProjectionRelationshipSemantic.apply', () => {
       return baseAdapter.getNodeAttributes(nodeId);
     };
 
-    const rule = new ProjectionRelationshipSemantic({
+    const rule = new ProjectionAdjacencyRelationship({
       edge: {
         from: {
           attr: { key: 'projection.derivation.projectionName', eq: 'aws.alb' },
