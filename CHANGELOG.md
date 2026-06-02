@@ -1,3 +1,15 @@
+# [1.0.0-rc.28](https://github.com/terra-graph/core/compare/v1.0.0-rc.27...v1.0.0-rc.28) (2026-06-02)
+
+
+### Bug Fixes
+
+* module edge connections ([4871505](https://github.com/terra-graph/core/commit/487150559697ac10093ee9f527d8c4247d22c67c))
+
+
+### Features
+
+* introduce fact based semantics derived from plan data ([45a6d48](https://github.com/terra-graph/core/commit/45a6d485a838d4b2dcf0d7e1496c7ffa88e4fd55))
+
 # [1.0.0-rc.27](https://github.com/terra-graph/core/compare/v1.0.0-rc.26...v1.0.0-rc.27) (2026-05-25)
 
 
