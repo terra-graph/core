@@ -725,4 +725,152 @@ describe('TfPlanDecorator.decorate', () => {
       ),
     ).toBeDefined();
   });
+
+  it('should preserve root-scope references and skip unmatched configuration resources', () => {
+    const missingKeyNodeId = asNodeId('graph-key-does-not-match-node-id');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: { source: 'test' },
+      nodes: {
+        [missingKeyNodeId]: {
+          id: toResourceNodeId('aws_lambda_function.real_id'),
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.real_id',
+            resource: 'aws_lambda_function',
+            name: 'real_id',
+          },
+        },
+        [toResourceNodeId('aws_lambda_function.target')]: {
+          id: toResourceNodeId('aws_lambda_function.target'),
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.target',
+            resource: 'aws_lambda_function',
+            name: 'target',
+          },
+        },
+        [asNodeId('module-node')]: {
+          id: asNodeId('module-node'),
+          terraform: {
+            kind: 'module',
+            address: 'module.ignored',
+            resource: 'module',
+            name: 'ignored',
+          } as never,
+        },
+      },
+      edges: [
+        {
+          id: asEdgeId('existing'),
+          from: toResourceNodeId('aws_lambda_function.real_id'),
+          to: toResourceNodeId('aws_lambda_function.target'),
+        },
+      ],
+    };
+    const decorator = new TfPlanDecorator();
+
+    const result = decorator.decorate(graph, {
+      planned_values: {
+        root_module: {
+          resources: [],
+        },
+      },
+      configuration: {
+        root_module: {
+          resources: [
+            {
+              address: 'aws_lambda_function.unmatched',
+            },
+            {
+              address: 'aws_lambda_function.real_id',
+              expressions: {
+                passthrough: {
+                  references: ['var.shared', 'aws_lambda_function.target'],
+                },
+              },
+            },
+          ],
+          module_calls: {
+            skipped: {},
+          },
+        },
+      },
+    });
+
+    expect(
+      result.nodes[missingKeyNodeId]?.terraform?.configuration?.expressions,
+    ).toBeUndefined();
+    expect(
+      result.edges.filter(
+        (edge) =>
+          edge.from === toResourceNodeId('aws_lambda_function.real_id') &&
+          edge.to === toResourceNodeId('aws_lambda_function.target'),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('should preserve root-scope references in stored configuration expressions', () => {
+    const graph = buildGraph([
+      'aws_lambda_function.source',
+      'aws_lambda_function.target',
+      'module.nested.aws_lambda_function.worker',
+    ]);
+    const decorator = new TfPlanDecorator();
+
+    const result = decorator.decorate(graph, {
+      planned_values: {
+        root_module: {
+          resources: [],
+        },
+      },
+      configuration: {
+        root_module: {
+          resources: [
+            {
+              address: 'aws_lambda_function.source',
+              expressions: {
+                passthrough: {
+                  references: ['var.shared', 'aws_lambda_function.target'],
+                },
+              },
+            },
+          ],
+          module_calls: {
+            nested: {
+              module: {
+                resources: [
+                  {
+                    address: 'aws_lambda_function.worker',
+                    expressions: {
+                      passthrough: {
+                        references: ['var.shared'],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(
+      result.nodes[toResourceNodeId('aws_lambda_function.source')].terraform
+        ?.configuration?.expressions,
+    ).toEqual({
+      passthrough: {
+        references: ['var.shared', 'aws_lambda_function.target'],
+      },
+    });
+    expect(
+      result.nodes[toResourceNodeId('module.nested.aws_lambda_function.worker')]
+        .terraform?.configuration?.expressions,
+    ).toEqual({
+      passthrough: {
+        references: ['var.shared'],
+      },
+    });
+  });
 });

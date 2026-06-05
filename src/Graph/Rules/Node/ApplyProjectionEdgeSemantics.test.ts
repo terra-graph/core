@@ -358,4 +358,55 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
 
     expect(graph.setEdge).toHaveBeenCalledTimes(1);
   });
+
+  it('should leave edges without adjacency or projection semantics unchanged', () => {
+    const sourceId = asNodeId('source');
+    const targetId = asNodeId('target');
+    const edgeId = asEdgeId('plain-edge');
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [sourceId]: {
+          id: sourceId,
+          projection: {
+            layer: 'core',
+            address: 'source',
+            label: 'Source',
+          },
+        },
+        [targetId]: {
+          id: targetId,
+          projection: {
+            layer: 'core',
+            address: 'target',
+            label: 'Target',
+          },
+        },
+      },
+      edges: [
+        {
+          id: edgeId,
+          from: sourceId,
+          to: targetId,
+          attributes: {},
+        },
+      ],
+    };
+
+    const adapter: AdapterOperations = new GraphologyAdapter(
+      new DirectedGraph(),
+    ).withTgGraph(graph);
+    const rule = new ApplyProjectionEdgeSemantics();
+    const sourceNode = adapter.getNodeAttributes(sourceId);
+    if (!sourceNode) {
+      throw new Error('Missing source node');
+    }
+
+    rule.match(sourceId, sourceNode, adapter);
+    const result = rule.apply(sourceId, sourceNode, adapter);
+
+    expect(result.getEdgeAttributes(edgeId)).toEqual({});
+  });
 });

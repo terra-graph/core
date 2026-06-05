@@ -253,6 +253,147 @@ describe('MaterializeProjectionInstances', () => {
     expect(helpers.edgeSuffix({}, 'prefix:custom')).toBe('custom');
   });
 
+  it('should normalize numeric and raw module instance keys when expanding logical projections', () => {
+    const rootNodeId = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.handler_family',
+    );
+    const projectionNodeId = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:handler',
+    );
+    const graph = new GraphologyAdapter(new DirectedGraph()).withTgGraph({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [rootNodeId]: {
+          id: rootNodeId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.handler_family',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address: 'aws_lambda_function.handler_family',
+                values: null,
+              },
+              instances: [
+                {
+                  address: 'module.group[0].aws_lambda_function.handler[1]',
+                  values: null,
+                },
+                {
+                  address: 'module.group[bad-key].aws_lambda_function.handler',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [projectionNodeId]: {
+          id: projectionNodeId,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:handler',
+            label: 'Handler',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:handler',
+              rootNodeId,
+              anchors: [{ nodeId: rootNodeId, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    });
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const helpers = asHarness(rule);
+
+    expect(helpers.expandLogicalProjection(projectionNodeId, graph)).toEqual([
+      expect.objectContaining({
+        instanceKey: '0/1',
+        instanceOrdinal: 1,
+      }),
+      expect.objectContaining({
+        instanceKey: 'bad-key',
+      }),
+    ]);
+  });
+
+  it('should fall back to state index when a logical projection instance has no ordinal', () => {
+    const rootNodeId = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.singleton_family',
+    );
+    const projectionNodeId = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:singleton',
+    );
+    const graph = new GraphologyAdapter(new DirectedGraph()).withTgGraph({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [rootNodeId]: {
+          id: rootNodeId,
+          terraform: {
+            address: 'aws_lambda_function.singleton_family',
+            kind: 'resource',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address: 'aws_lambda_function.singleton_family',
+                values: null,
+              },
+              instances: [
+                {
+                  address: 'aws_lambda_function.singleton_family',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [projectionNodeId]: {
+          id: projectionNodeId,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:singleton',
+            label: 'Singleton',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:singleton',
+              rootNodeId,
+              anchors: [{ nodeId: rootNodeId, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    });
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+
+    expect(
+      asHarness(rule).expandLogicalProjection(projectionNodeId, graph),
+    ).toEqual([
+      expect.objectContaining({
+        rootInstanceAddress: 'aws_lambda_function.singleton_family',
+      }),
+    ]);
+  });
+
   it('should exercise logical expansion helper branches', () => {
     const plainNode = tgNodeIdFrom('resource', 'aws_lambda_function.plain');
     const noAddress = tgNodeIdFrom(

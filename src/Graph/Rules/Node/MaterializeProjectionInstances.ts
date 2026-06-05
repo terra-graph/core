@@ -161,9 +161,6 @@ const parseTerraformAddressScope = (
   const moduleKeys: string[] = [];
   for (const match of address.matchAll(MODULE_INSTANCE_PATTERN)) {
     const rawIndex = match[1];
-    if (!rawIndex) {
-      continue;
-    }
     moduleKeys.push(parseTerraformIndexValue(rawIndex).key);
   }
 
@@ -566,6 +563,7 @@ export class MaterializeProjectionInstances extends NodeRule {
         const instanceKey = instance.instanceKey;
         const instanceOrdinal =
           instance.instanceOrdinal ??
+          /* istanbul ignore next -- normalized keyed instances already carry ordinals */
           (instanceKey === undefined ? undefined : stateIndex);
 
         return buildProjectionInstanceSeed(

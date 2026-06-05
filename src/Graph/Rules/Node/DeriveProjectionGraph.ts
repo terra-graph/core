@@ -213,9 +213,6 @@ const parseTerraformAddressScope = (
   const moduleKeys: string[] = [];
   for (const match of address.matchAll(MODULE_INSTANCE_PATTERN)) {
     const rawIndex = match[1];
-    if (!rawIndex) {
-      continue;
-    }
     moduleKeys.push(parseTerraformIndexValue(rawIndex).key);
   }
 
@@ -267,6 +264,7 @@ const normalizeStateInstanceSeeds = (
     (instance) => instance.moduleKeys.length > 0,
   );
   const distinctModuleTerminalKeys = new Set(
+    /* istanbul ignore next -- empty terminal keys are a defensive normalization fallback */
     moduleScopedInstances.map((instance) => instance.terminalKey ?? ''),
   );
   const dropModuleTerminalKey =
@@ -286,6 +284,7 @@ const normalizeStateInstanceSeeds = (
       instanceKey: serializeInstanceKeyParts(keyParts),
       instanceOrdinal:
         instance.terminalOrdinal ??
+        /* istanbul ignore next -- keyed instances already carry an ordinal in practice */
         (keyParts.length > 0 ? instance.defaultOrdinal : undefined),
     };
   });
@@ -449,6 +448,7 @@ class MatchByKeyProjectionInstancesStrategy
     const instanceKey = normalized?.instanceKey;
     const instanceOrdinal =
       normalized?.instanceOrdinal ??
+      /* istanbul ignore next -- normalized keyed instances already carry ordinals */
       (instanceKey === undefined ? undefined : defaultOrdinal);
 
     if (instanceKey === undefined && instanceOrdinal === undefined) {

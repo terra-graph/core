@@ -131,6 +131,21 @@ type DeriveProjectionGraphTestHarness = {
     memberToProjections: Map<NodeId, Set<NodeId>>,
     graph: AdapterOperations,
   ): Map<string, RelationshipEvidence & { minEvidence: number }>;
+  collectRelationshipViaResourceTypes(
+    path: NodeId[],
+    terminalNodeId: NodeId,
+    targetProjectionIds: NodeId[],
+    projectionRootNodes: Map<NodeId, NodeId>,
+    graph: AdapterOperations,
+  ): string[];
+  collectViaResourceTypes(
+    viaNodeIds: NodeId[],
+    graph: AdapterOperations,
+  ): string[];
+  shouldIncludeRelationshipPath(
+    viaResourceTypes: string[],
+    relationships: TestResolvedProjection['relationships'],
+  ): boolean;
 };
 
 const asHarness = (
@@ -347,6 +362,157 @@ describe('DeriveProjectionGraph', () => {
         viaResourceTypes: ['aws_apigatewayv2_integration'],
       },
     });
+  });
+
+  it('should cover indexed-seed and relationship helper edge cases', () => {
+    const rule = createRule({
+      instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      projections: [],
+    });
+    const harness = asHarness(rule);
+
+    expect(
+      harness.instanceStrategy.expand({
+        groupKey: 'aws.lambda:handler',
+        label: 'Handler',
+        rootNode: {
+          id: asNodeId('numeric'),
+          terraform: {
+            address: 'module.group[0].aws_lambda_function.handler[1]',
+          },
+        },
+      } as never),
+    ).toEqual([
+      expect.objectContaining({
+        instanceKey: '0/1',
+        instanceOrdinal: 1,
+      }),
+    ]);
+
+    expect(
+      harness.instanceStrategy.expand({
+        groupKey: 'aws.lambda:handler',
+        label: 'Handler',
+        rootNode: {
+          id: asNodeId('raw'),
+          terraform: {
+            address: 'module.group[bad-key].aws_lambda_function.handler',
+          },
+        },
+      } as never),
+    ).toEqual([
+      expect.objectContaining({
+        instanceKey: 'bad-key',
+        instanceOrdinal: undefined,
+      }),
+    ]);
+
+    expect(
+      harness.instanceStrategy.expand({
+        groupKey: 'aws.lambda:handler',
+        label: 'Handler',
+        rootNode: {
+          id: asNodeId('module-only'),
+          terraform: {
+            address: 'module.group["blue"].aws_lambda_function.handler',
+          },
+        },
+      } as never),
+    ).toEqual([
+      expect.objectContaining({
+        instanceKey: 'blue',
+      }),
+    ]);
+
+    expect(
+      harness.instanceStrategy.expand({
+        groupKey: 'aws.lambda:handler',
+        label: 'Handler',
+        rootNode: {
+          id: asNodeId('state-module-only'),
+          terraform: {
+            address: 'aws_lambda_function.handler_family',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address: 'aws_lambda_function.handler_family',
+                values: null,
+              },
+              instances: [
+                {
+                  address: 'module.group["blue"].aws_lambda_function.handler',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+      } as never),
+    ).toEqual([
+      expect.objectContaining({
+        instanceKey: 'blue',
+        instanceOrdinal: 0,
+      }),
+    ]);
+
+    const startId = asNodeId('start');
+    const duplicateResourceId = asNodeId('duplicate');
+    const terminalWithoutResourceId = asNodeId('terminal-no-resource');
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [startId]: {
+          id: startId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.start',
+            resource: 'aws_lambda_function',
+            name: 'start',
+          },
+        },
+        [duplicateResourceId]: {
+          id: duplicateResourceId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.duplicate',
+            resource: 'aws_lambda_function',
+            name: 'duplicate',
+          },
+        },
+        [terminalWithoutResourceId]: {
+          id: terminalWithoutResourceId,
+        },
+      },
+      edges: [],
+    });
+
+    expect(
+      harness.collectRelationshipViaResourceTypes(
+        [startId, duplicateResourceId, terminalWithoutResourceId],
+        terminalWithoutResourceId,
+        [asNodeId('projection-target')],
+        new Map([[asNodeId('projection-target'), asNodeId('other-root')]]),
+        adapter,
+      ),
+    ).toEqual(['aws_lambda_function']);
+
+    expect(
+      harness.collectViaResourceTypes(
+        [startId, duplicateResourceId, terminalWithoutResourceId],
+        adapter,
+      ),
+    ).toEqual(['aws_lambda_function']);
+
+    expect(
+      harness.shouldIncludeRelationshipPath(['aws_sqs_queue'], {
+        maxDepth: 1,
+        minEvidence: 1,
+        includeViaResources: [],
+        excludeViaResources: [],
+        requireViaResources: ['aws_lambda_function'],
+      }),
+    ).toBe(false);
   });
 
   it('should expand instance projections by key and suppress ambiguous replicated edges', () => {

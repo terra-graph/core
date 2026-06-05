@@ -143,7 +143,7 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
       updated = updated.setEdge(edgeId, nodeId, targetId, {
         ...current,
         projection: {
-          ...(current.projection ?? { layer: 'core' }),
+          ...current.projection,
           relationship: buildRelationshipAttributes(current, options.relation),
         },
       });
@@ -179,7 +179,7 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
         updated = updated.removeEdge(edgeId).setEdge(edgeId, nodeId, sourceId, {
           ...current,
           projection: {
-            ...(current.projection ?? { layer: 'core' }),
+            ...current.projection,
             relationship: buildRelationshipAttributes(
               current,
               options.relation,

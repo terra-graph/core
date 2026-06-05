@@ -3,6 +3,10 @@ import { GraphologyAdapter } from '../../Adapters/GraphologyAdapter.js';
 import { TG_SCHEMA_VERSION, TgGraph, tgNodeIdFrom } from '../../TgGraph.js';
 import { NodeProperties } from './NodeProperties.js';
 
+type NodePropertiesStatics = {
+  deepMerge(base: unknown, patch: unknown): unknown;
+};
+
 describe('NodeProperties.constructor', () => {
   it('shoud require options', () => {
     expect(
@@ -424,5 +428,12 @@ describe('NodeProperties.apply', () => {
 
     expect(result).toBe(adapter);
     expect(result.getNodeAttributes(nodeId)).toEqual(node);
+  });
+
+  it('should expose scalar merge fallback for helper coverage', () => {
+    const helpers = NodeProperties as unknown as NodePropertiesStatics;
+    expect(helpers.deepMerge('base', { value: true })).toEqual({
+      value: true,
+    });
   });
 });
