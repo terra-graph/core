@@ -1,3 +1,4 @@
+import { isObjectRecord } from '../ObjectUtilities.js';
 import type { AdapterOperations } from './Operations/Operations.js';
 import type {
   NodeId,
@@ -45,9 +46,6 @@ export interface SemanticReferenceHeuristic {
     context: SemanticReferenceResolutionContext,
   ): SemanticReferenceCandidate[];
 }
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const stripWrappingQuotes = (value: string): string =>
   value.replace(/^["']|["']$/g, '');

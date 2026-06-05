@@ -1,3 +1,4 @@
+import { isObjectRecord } from '../../../ObjectUtilities.js';
 import { NodeQuery } from '../../Operations/Matchers/NodeQuery/NodeQuery.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
 import {
@@ -119,9 +120,6 @@ type DeriveProjectionGraphDependencies = {
 
 const PROJECTION_PAIR_KEY_DELIMITER = '->';
 const WILDCARD_SEGMENT_PATTERN = '.*';
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const sanitizeGroupValue = (value: string): string =>
   value.trim().length > 0 ? value.trim() : 'unknown';

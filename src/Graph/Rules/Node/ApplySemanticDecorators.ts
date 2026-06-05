@@ -1,3 +1,4 @@
+import { isObjectRecord } from '../../../ObjectUtilities.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
 import type { SemanticDecorator } from '../../Semantics.js';
 import { NodeId, TgNodeAttributes } from '../../TgGraph.js';
@@ -16,9 +17,6 @@ type ApplySemanticDecoratorsInput =
       options: ApplySemanticDecoratorsOptions;
     }
   | NodeRuleConfig;
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isApplySemanticDecoratorsMode = (
   value: unknown,

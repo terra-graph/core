@@ -1,5 +1,6 @@
 import { DirectedGraph } from 'graphology';
 import type { AbstractGraph as Graphology } from 'graphology-types';
+import { isObjectRecord } from '../../ObjectUtilities.js';
 import { AdapterOperations } from '../Operations/Operations.js';
 import { JsonRenderer } from '../Renderers/JsonRenderer.js';
 import {
@@ -398,7 +399,7 @@ export class GraphologyAdapter implements AdapterOperations {
   private resolveTerraformState(
     value: unknown,
   ): TgNodeTerraformState | undefined {
-    if (!this.isObjectRecord(value)) {
+    if (!isObjectRecord(value)) {
       return undefined;
     }
 
@@ -437,7 +438,7 @@ export class GraphologyAdapter implements AdapterOperations {
       return null;
     }
 
-    if (!this.isObjectRecord(value)) {
+    if (!isObjectRecord(value)) {
       return undefined;
     }
 
@@ -490,10 +491,6 @@ export class GraphologyAdapter implements AdapterOperations {
     }
 
     return base;
-  }
-
-  private isObjectRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 
   private parentModuleHelpers(

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { Module, isBuiltin } from 'node:module';
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isObjectRecord } from '../../ObjectUtilities.js';
 import { RuntimeProvider } from '../RuntimeProvider.js';
 import {
   RuntimeProviderLoadInput,
@@ -33,7 +34,7 @@ export class ModuleRuntimeProviderLoader implements RuntimeProviderLoader {
   }
 
   private isRuntimeProvider(value: unknown): value is RuntimeProvider {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+    return isObjectRecord(value);
   }
 
   private hasProviderShape(value: unknown): value is RuntimeProvider {

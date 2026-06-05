@@ -1,3 +1,4 @@
+import { isObjectRecord } from '../../../ObjectUtilities.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
 import {
   DefaultProjectionAnchorRoles,
@@ -67,9 +68,6 @@ type ProjectionInstancePair = {
   source: ProjectionInstance;
   target: ProjectionInstance;
 };
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isProjectionInstanceStrategyName = (
   value: unknown,

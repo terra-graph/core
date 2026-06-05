@@ -1,4 +1,5 @@
 import z from 'zod';
+import { getValueAtPath } from '../../../../ObjectUtilities.js';
 import {
   NodeId,
   TgEdgeAttributes,
@@ -255,14 +256,6 @@ export class EdgeQuery {
     target: Record<string, unknown>,
     path: string,
   ): unknown {
-    if (!path) {
-      return undefined;
-    }
-    return path.split('.').reduce<unknown>((acc, key) => {
-      if (acc && typeof acc === 'object' && key in (acc as object)) {
-        return (acc as Record<string, unknown>)[key];
-      }
-      return undefined;
-    }, target);
+    return getValueAtPath(target, path);
   }
 }

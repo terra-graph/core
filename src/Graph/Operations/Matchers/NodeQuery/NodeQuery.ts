@@ -1,4 +1,5 @@
 import z from 'zod';
+import { getValueAtPath } from '../../../../ObjectUtilities.js';
 import { NodeId, TgNodeAttributes } from '../../../TgGraph.js';
 import { Operations } from '../../Operations.js';
 import { NodeMatchFn } from '../NodeMatchFn.js';
@@ -179,14 +180,6 @@ export class NodeQuery {
     target: Record<string, unknown>,
     path: string,
   ): unknown {
-    if (!path) {
-      return undefined;
-    }
-    return path.split('.').reduce<unknown>((acc, key) => {
-      if (acc && typeof acc === 'object' && key in (acc as object)) {
-        return (acc as Record<string, unknown>)[key];
-      }
-      return undefined;
-    }, target);
+    return getValueAtPath(target, path);
   }
 }

@@ -1,3 +1,4 @@
+import { cloneDeepValue } from '../../ObjectUtilities.js';
 import { RuleSet, SerializedRuleSet } from './RuleSet.js';
 
 export type NamedRuleSetDefinition =
@@ -98,6 +99,6 @@ export class NamedRuleSetRegistry {
   }
 
   private static cloneSerialized(set: SerializedRuleSet): SerializedRuleSet {
-    return JSON.parse(JSON.stringify(set)) as SerializedRuleSet;
+    return cloneDeepValue(set);
   }
 }

@@ -1,3 +1,4 @@
+import { isObjectRecord } from '../ObjectUtilities.js';
 import { NamedRuleRegistry } from './Rules/NamedRuleRegistry.js';
 import {
   NamedRuleSetDefinition,
@@ -155,10 +156,6 @@ export type ResolveGraphPluginsResult = {
   phases: PhasePlan;
   namedRules: NamedRuleRegistry;
   namedRuleSets: NamedRuleSetRegistry;
-};
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 };
 
 const resolveGraphPluginOptions = <TOptions extends Record<string, unknown>>(

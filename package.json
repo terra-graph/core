@@ -66,6 +66,7 @@
   "dependencies": {
     "graphlib-dot": "^0.6.4",
     "graphology": "^0.26.0",
+    "lodash": "^4.17.23",
     "yaml": "^2.8.2",
     "zod": "^3.24.1"
   },

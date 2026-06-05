@@ -1,3 +1,4 @@
+import { cloneDeepValue } from '../../ObjectUtilities.js';
 import { BaseRule } from './Rule.js';
 import { RuleConfig } from './RuleConfig.js';
 import { NamedRuleDefinition, NamedRuleDefinitions } from './RulePlan.js';
@@ -101,6 +102,6 @@ export class NamedRuleRegistry {
   }
 
   private static cloneConfig(config: RuleConfig): RuleConfig {
-    return JSON.parse(JSON.stringify(config)) as RuleConfig;
+    return cloneDeepValue(config);
   }
 }

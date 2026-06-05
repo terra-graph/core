@@ -1,9 +1,6 @@
+import { isObjectRecord } from '../ObjectUtilities.js';
 import type { NodeId, TgNodeAttributes } from './TgGraph.js';
-
-export const isObjectRecord = (
-  value: unknown,
-): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+export { isObjectRecord } from '../ObjectUtilities.js';
 
 export const isArrayOfUnknown = (value: unknown): value is unknown[] =>
   Array.isArray(value);

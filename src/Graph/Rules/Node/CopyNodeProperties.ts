@@ -1,3 +1,9 @@
+import {
+  cloneDeepValue,
+  getValueAtPath,
+  isObjectRecord,
+  setValueAtPath,
+} from '../../../ObjectUtilities.js';
 import { NodeQuery } from '../../Operations/Matchers/NodeQuery/NodeQuery.js';
 import { QueryDsl } from '../../Operations/Matchers/NodeQuery/QuerySchema.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
@@ -13,9 +19,6 @@ type CopyNodePropertiesOptions = {
   sourceNode: QueryDsl;
   properties: string[];
 };
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isValueReference = (value: unknown): value is ValueReference => {
   if (!isObjectRecord(value)) {
@@ -177,16 +180,7 @@ export class CopyNodeProperties extends NodeRule {
     target: Record<string, unknown>,
     path: string,
   ): unknown {
-    if (!path) {
-      return undefined;
-    }
-
-    return path.split('.').reduce<unknown>((acc, key) => {
-      if (acc && typeof acc === 'object' && key in (acc as object)) {
-        return (acc as Record<string, unknown>)[key];
-      }
-      return undefined;
-    }, target);
+    return getValueAtPath(target, path);
   }
 
   private static setValueAtPath(
@@ -194,40 +188,11 @@ export class CopyNodeProperties extends NodeRule {
     path: string,
     value: unknown,
   ): Record<string, unknown> {
-    const keys = path.split('.').filter((key) => key.length > 0);
-    if (keys.length === 0) {
-      return target;
-    }
-
-    const root = { ...target };
-    let current: Record<string, unknown> = root;
-
-    for (const key of keys.slice(0, -1)) {
-      const next = current[key];
-      const nextObject = isObjectRecord(next) ? { ...next } : {};
-      current[key] = nextObject;
-      current = nextObject;
-    }
-
-    const lastKey = keys[keys.length - 1];
-    current[lastKey as string] = value;
-
-    return root;
+    return setValueAtPath(target, path, value);
   }
 
   private static cloneValue<T>(value: T): T {
-    if (Array.isArray(value)) {
-      return value.map((item) => CopyNodeProperties.cloneValue(item)) as T;
-    }
-    if (isObjectRecord(value)) {
-      return Object.fromEntries(
-        Object.entries(value).map(([key, entryValue]) => [
-          key,
-          CopyNodeProperties.cloneValue(entryValue),
-        ]),
-      ) as T;
-    }
-    return value;
+    return cloneDeepValue(value);
   }
 }
 

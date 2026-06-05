@@ -1,5 +1,5 @@
+import { isObjectRecord } from '../ObjectUtilities.js';
 import { AdapterOperations } from './Operations/Operations.js';
-import { isObjectRecord } from './TerraformIntrospection.js';
 import {
   EdgeId,
   NodeId,

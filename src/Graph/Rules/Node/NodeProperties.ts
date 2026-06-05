@@ -1,3 +1,8 @@
+import {
+  getValueAtPath,
+  isObjectRecord,
+  mergeObjectRecords,
+} from '../../../ObjectUtilities.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
 import { NodeId, TgNodeAttributes } from '../../TgGraph.js';
 import { NodeRule } from '../Rule.js';
@@ -5,10 +10,6 @@ import { NodeRuleConfig } from '../RuleConfig.js';
 
 type ValueReference = {
   from: string;
-};
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 };
 
 const isValueReference = (value: unknown): value is ValueReference => {
@@ -100,28 +101,14 @@ export class NodeProperties extends NodeRule {
       return patch;
     }
 
-    const merged: Record<string, unknown> = { ...base };
-    for (const [key, value] of Object.entries(patch)) {
-      merged[key] = NodeProperties.deepMerge(merged[key], value);
-    }
-
-    return merged;
+    return mergeObjectRecords(base, patch);
   }
 
   private static getValueAtPath(
     target: Record<string, unknown>,
     path: string,
   ): unknown {
-    if (!path) {
-      return undefined;
-    }
-
-    return path.split('.').reduce<unknown>((acc, key) => {
-      if (acc && typeof acc === 'object' && key in (acc as object)) {
-        return (acc as Record<string, unknown>)[key];
-      }
-      return undefined;
-    }, target);
+    return getValueAtPath(target, path);
   }
 }
 
