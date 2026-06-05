@@ -34,6 +34,18 @@ type ParsedTerraformInstanceAddress = {
   ordinal?: number;
 };
 
+type ParsedTerraformAddressScope = {
+  moduleKeys: string[];
+  terminalKey?: string;
+  terminalOrdinal?: number;
+};
+
+type NormalizedInstanceSeed = {
+  rootInstanceAddress: string;
+  instanceKey?: string;
+  instanceOrdinal?: number;
+};
+
 type ProjectionInstanceSeed = {
   rootNodeId: NodeId;
   projectionAddress: string;
@@ -115,6 +127,118 @@ const parseTerraformInstanceAddress = (
     baseAddress,
     key: indexValue,
   };
+};
+
+const MODULE_INSTANCE_PATTERN = /module\.[^.[\]]+\[([^[\]]+)\]/g;
+
+const parseTerraformIndexValue = (
+  rawIndex: string,
+): { key: string; ordinal?: number } => {
+  const indexValue = rawIndex.trim();
+  if (/^-?\d+$/.test(indexValue)) {
+    return {
+      key: indexValue,
+      ordinal: Number(indexValue),
+    };
+  }
+
+  if (indexValue.startsWith('"') && indexValue.endsWith('"')) {
+    try {
+      return {
+        key: JSON.parse(indexValue) as string,
+      };
+    } catch {
+      // Fall back to the raw value below.
+    }
+  }
+
+  return {
+    key: indexValue,
+  };
+};
+
+const parseTerraformAddressScope = (
+  address: string,
+): ParsedTerraformAddressScope => {
+  const moduleKeys: string[] = [];
+  for (const match of address.matchAll(MODULE_INSTANCE_PATTERN)) {
+    const rawIndex = match[1];
+    if (!rawIndex) {
+      continue;
+    }
+    moduleKeys.push(parseTerraformIndexValue(rawIndex).key);
+  }
+
+  const parsedTerminal = parseTerraformInstanceAddress(address);
+  return {
+    moduleKeys,
+    terminalKey: parsedTerminal.key,
+    terminalOrdinal: parsedTerminal.ordinal,
+  };
+};
+
+const serializeInstanceKeyParts = (parts: string[]): string | undefined => {
+  if (parts.length === 0) {
+    return undefined;
+  }
+
+  return parts.length === 1 ? parts[0] : parts.join('/');
+};
+
+const normalizeStateInstanceSeeds = (
+  instances: Array<{
+    address: string;
+    index?: number | string;
+  }>,
+): NormalizedInstanceSeed[] => {
+  const scopedInstances = instances.map((instance, defaultOrdinal) => {
+    const scope = parseTerraformAddressScope(instance.address);
+    const terminalKey =
+      typeof instance.index === 'number' ||
+      (typeof instance.index === 'string' && instance.index.length > 0)
+        ? String(instance.index)
+        : scope.terminalKey;
+    const terminalOrdinal =
+      typeof instance.index === 'number'
+        ? instance.index
+        : (scope.terminalOrdinal ??
+          (terminalKey === undefined ? undefined : defaultOrdinal));
+
+    return {
+      address: instance.address,
+      moduleKeys: scope.moduleKeys,
+      terminalKey,
+      terminalOrdinal,
+      defaultOrdinal,
+    };
+  });
+
+  const moduleScopedInstances = scopedInstances.filter(
+    (instance) => instance.moduleKeys.length > 0,
+  );
+  const distinctModuleTerminalKeys = new Set(
+    moduleScopedInstances.map((instance) => instance.terminalKey ?? ''),
+  );
+  const dropModuleTerminalKey =
+    moduleScopedInstances.length > 0 && distinctModuleTerminalKeys.size <= 1;
+
+  return scopedInstances.map((instance) => {
+    const keyParts = [...instance.moduleKeys];
+    if (
+      instance.terminalKey !== undefined &&
+      !(instance.moduleKeys.length > 0 && dropModuleTerminalKey)
+    ) {
+      keyParts.push(instance.terminalKey);
+    }
+
+    return {
+      rootInstanceAddress: instance.address,
+      instanceKey: serializeInstanceKeyParts(keyParts),
+      instanceOrdinal:
+        instance.terminalOrdinal ??
+        (keyParts.length > 0 ? instance.defaultOrdinal : undefined),
+    };
+  });
 };
 
 const formatProjectionInstanceSuffix = (key: string): string => {
@@ -392,7 +516,15 @@ export class MaterializeProjectionInstances extends NodeRule {
         ];
       }
 
-      const explicitRootInstance = parseTerraformInstanceAddress(rootAddress);
+      const explicitRootScope = parseTerraformAddressScope(rootAddress);
+      const explicitKeyParts = [...explicitRootScope.moduleKeys];
+      if (explicitRootScope.terminalKey !== undefined) {
+        explicitKeyParts.push(explicitRootScope.terminalKey);
+      }
+      const explicitRootInstance = {
+        key: serializeInstanceKeyParts(explicitKeyParts),
+        ordinal: explicitRootScope.terminalOrdinal,
+      };
       if (
         explicitRootInstance.key !== undefined ||
         explicitRootInstance.ordinal !== undefined
@@ -431,25 +563,19 @@ export class MaterializeProjectionInstances extends NodeRule {
         ];
       }
 
-      return stateInstances.map((instance, stateIndex) => {
-        const parsedInstance = parseTerraformInstanceAddress(instance.address);
-        const instanceKey =
-          typeof instance.index === 'number' ||
-          (typeof instance.index === 'string' && instance.index.length > 0)
-            ? String(instance.index)
-            : parsedInstance.key;
+      const normalizedInstances = normalizeStateInstanceSeeds(stateInstances);
+      return normalizedInstances.map((instance, stateIndex) => {
+        const instanceKey = instance.instanceKey;
         const instanceOrdinal =
-          typeof instance.index === 'number'
-            ? instance.index
-            : (parsedInstance.ordinal ??
-              (instanceKey === undefined ? undefined : stateIndex));
+          instance.instanceOrdinal ??
+          (instanceKey === undefined ? undefined : stateIndex);
 
         return buildProjectionInstanceSeed(
           anchor.nodeId,
           projection.address,
           projection.label,
           {
-            rootInstanceAddress: instance.address,
+            rootInstanceAddress: instance.rootInstanceAddress,
             instanceKey,
             instanceOrdinal,
             anchors: [anchor],

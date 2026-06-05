@@ -1,8 +1,11 @@
 import { AdapterOperations } from './Operations/Operations.js';
+import { isObjectRecord } from './TerraformIntrospection.js';
 import {
   EdgeId,
   NodeId,
   TgEdgeAttributes,
+  TgNodeAttributes,
+  TgNodeSemanticContext,
   TgSemanticFact,
   edgeIdFrom,
 } from './TgGraph.js';
@@ -20,9 +23,6 @@ export type SerializedSemanticDecoratorRef = {
 };
 
 type SemanticDecoratorFactory = (config?: unknown) => SemanticDecorator;
-
-const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export const isSemanticDecorator = (
   value: unknown,
@@ -162,7 +162,11 @@ export const addProjectionSemanticFactBetweenNodes = (
   suffix = `projection:semantic:${fact.decorator ?? 'semantic'}:${fact.kind}`,
 ): AdapterOperations => {
   const edgeId = edgeIdFrom(from, to, suffix);
-  const existingAttributes = graph.getEdgeAttributes(edgeId);
+  const existingAttributes = graph
+    .edgesBetween(from, to)
+    .find((candidateEdgeId) => String(candidateEdgeId) === String(edgeId))
+    ? graph.getEdgeAttributes(edgeId)
+    : undefined;
   const attributes =
     existingAttributes ??
     ({
@@ -177,6 +181,168 @@ export const addProjectionSemanticFactBetweenNodes = (
     to,
     withProjectionSemanticFact(attributes, fact),
   );
+};
+
+export const addSemanticFactBetweenNodes = (
+  graph: AdapterOperations,
+  from: NodeId,
+  to: NodeId,
+  fact: TgSemanticFact,
+  suffix = `semantic:${fact.decorator ?? 'semantic'}:${fact.kind}`,
+): AdapterOperations => {
+  const existingEdgeId = findFirstEdgeBetweenEitherDirection(graph, from, to);
+  const edgeId = existingEdgeId ?? edgeIdFrom(from, to, suffix);
+  if (existingEdgeId) {
+    return addSemanticFactToEdge(graph, edgeId, fact);
+  }
+
+  return graph.setEdge(edgeId, from, to, {
+    semantic: {
+      facts: [fact],
+    },
+  });
+};
+
+export const getNodeSemanticContext = <T extends TgNodeSemanticContext>(
+  node: TgNodeAttributes | undefined,
+  decorator: string,
+): T | undefined => {
+  const context = node?.semantic?.contexts?.[decorator];
+  return isObjectRecord(context) ? (context as T) : undefined;
+};
+
+export const setNodeSemanticContext = (
+  graph: AdapterOperations,
+  nodeId: NodeId,
+  decorator: string,
+  context: TgNodeSemanticContext,
+): AdapterOperations => {
+  const node = graph.getNodeAttributes(nodeId);
+  if (!node) {
+    return graph;
+  }
+
+  return graph.setNodeAttributes(nodeId, {
+    ...node,
+    semantic: {
+      ...node.semantic,
+      contexts: {
+        ...(node.semantic?.contexts ?? {}),
+        [decorator]: context,
+      },
+    },
+  });
+};
+
+export const buildProjectionOwners = (
+  graph: AdapterOperations,
+): Map<NodeId, NodeId[]> => {
+  const owners = new Map<NodeId, NodeId[]>();
+
+  for (const nodeId of graph.nodeIds()) {
+    const node = graph.getNodeAttributes(nodeId);
+    const derivation = node?.projection?.derivation;
+    if (!derivation) {
+      continue;
+    }
+
+    const ownerIds = new Set<NodeId>();
+    if (derivation.rootNodeId) {
+      ownerIds.add(derivation.rootNodeId);
+    }
+    for (const anchor of derivation.anchors ?? []) {
+      ownerIds.add(anchor.nodeId);
+    }
+
+    for (const ownerId of ownerIds) {
+      const current = owners.get(ownerId) ?? [];
+      owners.set(ownerId, [...current, nodeId]);
+    }
+  }
+
+  return owners;
+};
+
+export const toProjectedSemanticFact = (
+  fact: TgSemanticFact,
+  fromProjectionId: NodeId,
+  toProjectionId: NodeId,
+): TgSemanticFact => ({
+  ...fact,
+  from: fromProjectionId,
+  to: toProjectionId,
+  attributes: {
+    ...(fact.attributes ?? {}),
+    rawFrom: fact.from,
+    rawTo: fact.to,
+  },
+});
+
+export const projectSemanticFactsByOwners = (
+  graph: AdapterOperations,
+  decorator: string,
+  projectionOwners = buildProjectionOwners(graph),
+): AdapterOperations => {
+  let current = graph;
+  const visited = new Set<string>();
+
+  for (const nodeId of graph.nodeIds()) {
+    for (const edgeId of graph.outEdges(nodeId)) {
+      /* istanbul ignore next -- defensive guard for adapters that may report the same edge multiple times */
+      if (visited.has(String(edgeId))) {
+        continue;
+      }
+      visited.add(String(edgeId));
+
+      const edge = current.getEdgeAttributes(edgeId);
+      const facts =
+        edge.semantic?.facts?.filter((fact) => fact.decorator === decorator) ??
+        [];
+      if (facts.length === 0) {
+        continue;
+      }
+
+      for (const fact of facts) {
+        const fromProjectionIds = projectionOwners.get(fact.from) ?? [];
+        const toProjectionIds = projectionOwners.get(fact.to) ?? [];
+
+        for (const fromProjectionId of fromProjectionIds) {
+          for (const toProjectionId of toProjectionIds) {
+            const projectionFact = toProjectedSemanticFact(
+              fact,
+              fromProjectionId,
+              toProjectionId,
+            );
+
+            const projectionEdgeIds = [
+              ...current.edgesBetween(fromProjectionId, toProjectionId),
+              ...current.edgesBetween(toProjectionId, fromProjectionId),
+            ];
+
+            if (projectionEdgeIds.length === 0) {
+              current = addProjectionSemanticFactBetweenNodes(
+                current,
+                fromProjectionId,
+                toProjectionId,
+                projectionFact,
+              );
+              continue;
+            }
+
+            for (const projectionEdgeId of projectionEdgeIds) {
+              current = addProjectionSemanticFactToEdge(
+                current,
+                projectionEdgeId,
+                projectionFact,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return current;
 };
 
 export const findFirstEdgeBetweenEitherDirection = (

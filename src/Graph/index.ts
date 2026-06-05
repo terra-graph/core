@@ -9,6 +9,8 @@ export * from './Decorator.js';
 export * from './Profile.js';
 export * from './ProfileRegistry.js';
 export * from './Semantics.js';
+export * from './SemanticReferenceResolution.js';
+export * from './TerraformIntrospection.js';
 export * from './Plugins/index.js';
 export * from './Adapters/index.js';
 export * from './Decorators/index.js';

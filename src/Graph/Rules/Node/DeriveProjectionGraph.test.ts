@@ -962,6 +962,123 @@ describe('DeriveProjectionGraph', () => {
     );
   });
 
+  it('should derive module-aware projection instances from collapsed state instances', () => {
+    const lambda = tgNodeIdFrom(
+      'resource',
+      'module.gemini_bulk_request.aws_lambda_function.this',
+    );
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [lambda]: {
+          id: lambda,
+          terraform: {
+            kind: 'resource',
+            address: 'module.gemini_bulk_request.aws_lambda_function.this',
+            resource: 'aws_lambda_function',
+            name: 'this',
+            parentModuleName: 'gemini_bulk_request',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address:
+                  'module.gemini_bulk_request["abi"].aws_lambda_function.this[0]',
+                index: 0,
+                values: null,
+              },
+              instances: [
+                {
+                  address:
+                    'module.gemini_bulk_request["abi"].aws_lambda_function.this[0]',
+                  index: 0,
+                  values: null,
+                },
+                {
+                  address:
+                    'module.gemini_bulk_request["mei"].aws_lambda_function.this[0]',
+                  index: 0,
+                  values: null,
+                },
+                {
+                  address:
+                    'module.gemini_bulk_request["mti"].aws_lambda_function.this[0]',
+                  index: 0,
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const rule = createRule({
+      instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      projections: [
+        {
+          name: 'aws.lambda',
+          rootNode: {
+            attr: { key: 'terraform.resource', eq: 'aws_lambda_function' },
+          },
+        },
+      ],
+    });
+
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
+
+    const lambdaAbiProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this["abi"]',
+    );
+    const lambdaMeiProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this["mei"]',
+    );
+    const lambdaMtiProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this["mti"]',
+    );
+    const collapsedProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this[0]',
+    );
+
+    expect(result.nodes[collapsedProjection]).toBeUndefined();
+    expect(
+      result.nodes[lambdaAbiProjection]?.projection?.derivation,
+    ).toMatchObject({
+      groupKey: 'aws.lambda:gemini_bulk_request.this',
+      rootNodeId: lambda,
+      rootInstanceAddress:
+        'module.gemini_bulk_request["abi"].aws_lambda_function.this[0]',
+      instanceKey: 'abi',
+    });
+    expect(
+      result.nodes[lambdaMeiProjection]?.projection?.derivation,
+    ).toMatchObject({
+      groupKey: 'aws.lambda:gemini_bulk_request.this',
+      rootNodeId: lambda,
+      rootInstanceAddress:
+        'module.gemini_bulk_request["mei"].aws_lambda_function.this[0]',
+      instanceKey: 'mei',
+    });
+    expect(
+      result.nodes[lambdaMtiProjection]?.projection?.derivation,
+    ).toMatchObject({
+      groupKey: 'aws.lambda:gemini_bulk_request.this',
+      rootNodeId: lambda,
+      rootInstanceAddress:
+        'module.gemini_bulk_request["mti"].aws_lambda_function.this[0]',
+      instanceKey: 'mti',
+    });
+  });
+
   it('should derive separate projections for repeated module-wrapped root node names by default', () => {
     const lambdaA = tgNodeIdFrom(
       'resource',

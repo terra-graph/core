@@ -130,7 +130,12 @@ export type TgProjectionRelationship = {
 
 export type TgSemanticFactSource = 'explicit_connection' | 'permission';
 
-export type TgSemanticFactConfidence = 'exact' | 'inferred' | 'capability';
+export type TgSemanticFactConfidence =
+  | 'exact'
+  | 'structural'
+  | 'heuristic'
+  | 'inferred'
+  | 'capability';
 
 export type TgSemanticFact = {
   kind: string;
@@ -302,9 +307,16 @@ export type TgNodeHints = {
   cardinality?: TgNodeCardinalityHints;
 };
 
+export type TgNodeSemanticContext = Record<string, unknown>;
+
+export type TgNodeSemantic = {
+  contexts?: Record<string, TgNodeSemanticContext>;
+};
+
 export type TgNodeAttributes = {
   terraform?: TgNodeTerraform;
   projection?: TgNodeProjection;
+  semantic?: TgNodeSemantic;
   hints?: TgNodeHints;
   adapter?: Record<string, Record<string, unknown>>;
   [key: string]: unknown;

@@ -132,6 +132,18 @@ type ParsedTerraformInstanceAddress = {
   ordinal?: number;
 };
 
+type ParsedTerraformAddressScope = {
+  moduleKeys: string[];
+  terminalKey?: string;
+  terminalOrdinal?: number;
+};
+
+type NormalizedInstanceSeed = {
+  rootInstanceAddress: string;
+  instanceKey?: string;
+  instanceOrdinal?: number;
+};
+
 const parseTerraformInstanceAddress = (
   address: string,
 ): ParsedTerraformInstanceAddress => {
@@ -167,6 +179,118 @@ const parseTerraformInstanceAddress = (
     baseAddress,
     key: indexValue,
   };
+};
+
+const MODULE_INSTANCE_PATTERN = /module\.[^.[\]]+\[([^[\]]+)\]/g;
+
+const parseTerraformIndexValue = (
+  rawIndex: string,
+): { key: string; ordinal?: number } => {
+  const indexValue = rawIndex.trim();
+  if (/^-?\d+$/.test(indexValue)) {
+    return {
+      key: indexValue,
+      ordinal: Number(indexValue),
+    };
+  }
+
+  if (indexValue.startsWith('"') && indexValue.endsWith('"')) {
+    try {
+      return {
+        key: JSON.parse(indexValue) as string,
+      };
+    } catch {
+      // Fall through and use the raw key below.
+    }
+  }
+
+  return {
+    key: indexValue,
+  };
+};
+
+const parseTerraformAddressScope = (
+  address: string,
+): ParsedTerraformAddressScope => {
+  const moduleKeys: string[] = [];
+  for (const match of address.matchAll(MODULE_INSTANCE_PATTERN)) {
+    const rawIndex = match[1];
+    if (!rawIndex) {
+      continue;
+    }
+    moduleKeys.push(parseTerraformIndexValue(rawIndex).key);
+  }
+
+  const parsedTerminal = parseTerraformInstanceAddress(address);
+  return {
+    moduleKeys,
+    terminalKey: parsedTerminal.key,
+    terminalOrdinal: parsedTerminal.ordinal,
+  };
+};
+
+const serializeInstanceKeyParts = (parts: string[]): string | undefined => {
+  if (parts.length === 0) {
+    return undefined;
+  }
+
+  return parts.length === 1 ? parts[0] : parts.join('/');
+};
+
+const normalizeStateInstanceSeeds = (
+  instances: Array<{
+    address: string;
+    index?: number | string;
+  }>,
+): NormalizedInstanceSeed[] => {
+  const scopedInstances = instances.map((instance, defaultOrdinal) => {
+    const scope = parseTerraformAddressScope(instance.address);
+    const terminalKey =
+      typeof instance.index === 'number' ||
+      (typeof instance.index === 'string' && instance.index.length > 0)
+        ? String(instance.index)
+        : scope.terminalKey;
+    const terminalOrdinal =
+      typeof instance.index === 'number'
+        ? instance.index
+        : (scope.terminalOrdinal ??
+          (terminalKey === undefined ? undefined : defaultOrdinal));
+
+    return {
+      address: instance.address,
+      moduleKeys: scope.moduleKeys,
+      terminalKey,
+      terminalOrdinal,
+      defaultOrdinal,
+    };
+  });
+
+  const moduleScopedInstances = scopedInstances.filter(
+    (instance) => instance.moduleKeys.length > 0,
+  );
+  const distinctModuleTerminalKeys = new Set(
+    moduleScopedInstances.map((instance) => instance.terminalKey ?? ''),
+  );
+  const dropModuleTerminalKey =
+    moduleScopedInstances.length > 0 && distinctModuleTerminalKeys.size <= 1;
+
+  return scopedInstances.map((instance) => {
+    const keyParts = [...instance.moduleKeys];
+    if (
+      instance.terminalKey !== undefined &&
+      !(instance.moduleKeys.length > 0 && dropModuleTerminalKey)
+    ) {
+      keyParts.push(instance.terminalKey);
+    }
+
+    return {
+      rootInstanceAddress: instance.address,
+      instanceKey: serializeInstanceKeyParts(keyParts),
+      instanceOrdinal:
+        instance.terminalOrdinal ??
+        (keyParts.length > 0 ? instance.defaultOrdinal : undefined),
+    };
+  });
 };
 
 const baseTerraformAddress = (
@@ -240,12 +364,13 @@ class MatchByKeyProjectionInstancesStrategy
       });
     }
 
-    const seeds = instances.map((instance, index) =>
+    const normalizedInstances = normalizeStateInstanceSeeds(instances);
+    const seeds = normalizedInstances.map((instance, index) =>
       this.buildSeedFromStateInstance(
         groupKey,
         label,
-        instance.address,
-        instance.index,
+        instance.rootInstanceAddress,
+        instance.instanceKey ?? instance.instanceOrdinal,
         index,
       ),
     );
@@ -293,15 +418,20 @@ class MatchByKeyProjectionInstancesStrategy
       return undefined;
     }
 
-    const parsed = parseTerraformInstanceAddress(rootAddress);
-    if (parsed.key === undefined && parsed.ordinal === undefined) {
+    const scope = parseTerraformAddressScope(rootAddress);
+    const keyParts = [...scope.moduleKeys];
+    if (scope.terminalKey !== undefined) {
+      keyParts.push(scope.terminalKey);
+    }
+    const instanceKey = serializeInstanceKeyParts(keyParts);
+    if (instanceKey === undefined && scope.terminalOrdinal === undefined) {
       return undefined;
     }
 
     return {
       rootInstanceAddress: rootAddress,
-      instanceKey: parsed.key,
-      instanceOrdinal: parsed.ordinal,
+      instanceKey,
+      instanceOrdinal: scope.terminalOrdinal,
     };
   }
 
@@ -312,20 +442,16 @@ class MatchByKeyProjectionInstancesStrategy
     indexValue: number | string | undefined,
     defaultOrdinal: number,
   ): ProjectionInstanceSeed {
-    const parsed = parseTerraformInstanceAddress(instanceAddress);
-    let instanceKey = parsed.key;
-    if (typeof indexValue === 'number') {
-      instanceKey = String(indexValue);
-    } else if (typeof indexValue === 'string' && indexValue.length > 0) {
-      instanceKey = indexValue;
-    }
-
-    let instanceOrdinal = parsed.ordinal;
-    if (typeof indexValue === 'number') {
-      instanceOrdinal = indexValue;
-    } else if (instanceOrdinal === undefined && instanceKey !== undefined) {
-      instanceOrdinal = defaultOrdinal;
-    }
+    const [normalized] = normalizeStateInstanceSeeds([
+      {
+        address: instanceAddress,
+        index: indexValue,
+      },
+    ]);
+    const instanceKey = normalized?.instanceKey;
+    const instanceOrdinal =
+      normalized?.instanceOrdinal ??
+      (instanceKey === undefined ? undefined : defaultOrdinal);
 
     if (instanceKey === undefined && instanceOrdinal === undefined) {
       return {
