@@ -1,3 +1,10 @@
+# [1.0.0-rc.29](https://github.com/terra-graph/core/compare/v1.0.0-rc.28...v1.0.0-rc.29) (2026-06-05)
+
+
+### Features
+
+* better tf state semantics ([eac468c](https://github.com/terra-graph/core/commit/eac468cb1c15525d49737dd21ad04a81efc20f76))
+
 # [1.0.0-rc.28](https://github.com/terra-graph/core/compare/v1.0.0-rc.27...v1.0.0-rc.28) (2026-06-02)
 
 
