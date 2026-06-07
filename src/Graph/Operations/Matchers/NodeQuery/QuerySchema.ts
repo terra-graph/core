@@ -6,6 +6,10 @@ const PredicateObject = z.object({
   contains: z.string().optional(),
   startsWith: z.union([z.string(), z.array(z.string()).min(1)]).optional(),
   endsWith: z.union([z.string(), z.array(z.string()).min(1)]).optional(),
+  lt: z.number().optional(),
+  lte: z.number().optional(),
+  gt: z.number().optional(),
+  gte: z.number().optional(),
   exists: z.boolean().optional(),
 });
 
@@ -16,6 +20,10 @@ const refinePredicate = (value: z.infer<typeof PredicateObject>) => {
     value.contains !== undefined,
     value.startsWith !== undefined,
     value.endsWith !== undefined,
+    value.lt !== undefined,
+    value.lte !== undefined,
+    value.gt !== undefined,
+    value.gte !== undefined,
     value.exists !== undefined,
   ].filter(Boolean);
   return ops.length === 1;
@@ -23,7 +31,7 @@ const refinePredicate = (value: z.infer<typeof PredicateObject>) => {
 
 const PredicateSchema = PredicateObject.refine(refinePredicate, {
   message:
-    'predicate must specify exactly one of: eq | in | contains | startsWith | endsWith | exists',
+    'predicate must specify exactly one of: eq | in | contains | startsWith | endsWith | lt | lte | gt | gte | exists',
 });
 
 const AttrPredicateObject = PredicateObject.extend({
@@ -32,7 +40,7 @@ const AttrPredicateObject = PredicateObject.extend({
 
 export const AttrPredicateSchema = AttrPredicateObject.refine(refinePredicate, {
   message:
-    'attr must specify exactly one of: eq | in | contains | startsWith | endsWith | exists',
+    'attr must specify exactly one of: eq | in | contains | startsWith | endsWith | lt | lte | gt | gte | exists',
 });
 
 export const NodeIdPredicateSchema = PredicateSchema;

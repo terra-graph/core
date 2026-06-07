@@ -54,6 +54,9 @@ export type TgEdgeRenderHints = {
 export type TgEdgeSemanticHint = {
   semantic: string;
   role: DefaultEdgeSemanticRole;
+  confidence?: TgSemanticFactConfidence;
+  matchMode?: string;
+  matchCertainty?: number;
 };
 
 export type TgEdgeHints = {
@@ -126,6 +129,13 @@ export type TgProjectionRelationship = {
   source?: 'declared' | 'derived';
   projectionName?: string;
   evidence?: TgProjectionInferenceEvidence;
+  semanticFact?: {
+    kind: string;
+    confidence: TgSemanticFactConfidence;
+    decorator?: string;
+    matchMode?: string;
+    matchCertainty?: number;
+  };
 };
 
 export type TgSemanticFactSource = 'explicit_connection' | 'permission';

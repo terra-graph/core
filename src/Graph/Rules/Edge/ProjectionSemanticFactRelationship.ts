@@ -30,6 +30,9 @@ const isNonEmptyRelation = (
   value: unknown,
 ): value is TgProjectionRelationshipRelation => isNonEmptyString(value);
 
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
 const findSemanticFact = (
   edge: TgEdgeAttributes,
   factKind: string,
@@ -43,6 +46,7 @@ const findSemanticFact = (
 const buildRelationshipAttributes = (
   edge: TgEdgeAttributes,
   relation: TgProjectionRelationshipRelation,
+  fact?: TgSemanticFact,
 ) => ({
   ...edge.projection?.relationship,
   relation,
@@ -50,6 +54,19 @@ const buildRelationshipAttributes = (
   evidence:
     edge.projection?.relationship?.evidence ??
     edge.projection?.adjacency?.evidence,
+  semanticFact: fact
+    ? {
+        kind: fact.kind,
+        confidence: fact.confidence,
+        ...(fact.decorator !== undefined ? { decorator: fact.decorator } : {}),
+        ...(typeof fact.attributes?.matchMode === 'string'
+          ? { matchMode: fact.attributes.matchMode }
+          : {}),
+        ...(isFiniteNumber(fact.attributes?.matchCertainty)
+          ? { matchCertainty: fact.attributes.matchCertainty }
+          : {}),
+      }
+    : edge.projection?.relationship?.semanticFact,
 });
 
 export class ProjectionSemanticFactRelationship extends EdgeRule {
@@ -131,7 +148,13 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
       if (!this.matchesEdge(nodeId, node, targetId, target, current, updated)) {
         continue;
       }
-      if (!findSemanticFact(current, options.fact, nodeId, targetId)) {
+      const matchedFact = findSemanticFact(
+        current,
+        options.fact,
+        nodeId,
+        targetId,
+      );
+      if (!matchedFact) {
         continue;
       }
 
@@ -143,8 +166,13 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
       updated = updated.setEdge(edgeId, nodeId, targetId, {
         ...current,
         projection: {
+          layer: current.projection?.layer ?? 'core',
           ...current.projection,
-          relationship: buildRelationshipAttributes(current, options.relation),
+          relationship: buildRelationshipAttributes(
+            current,
+            options.relation,
+            matchedFact,
+          ),
         },
       });
     }
@@ -163,7 +191,13 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
         ) {
           continue;
         }
-        if (!findSemanticFact(current, options.fact, nodeId, sourceId)) {
+        const matchedFact = findSemanticFact(
+          current,
+          options.fact,
+          nodeId,
+          sourceId,
+        );
+        if (!matchedFact) {
           continue;
         }
 
@@ -179,10 +213,12 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
         updated = updated.removeEdge(edgeId).setEdge(edgeId, nodeId, sourceId, {
           ...current,
           projection: {
+            layer: current.projection?.layer ?? 'core',
             ...current.projection,
             relationship: buildRelationshipAttributes(
               current,
               options.relation,
+              matchedFact,
             ),
           },
         });

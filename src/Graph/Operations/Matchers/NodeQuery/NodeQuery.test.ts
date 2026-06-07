@@ -320,6 +320,46 @@ describe('NodeQuery.match', () => {
     ).toBe(true);
   });
 
+  it('shoud support numeric comparison predicates', () => {
+    const graph = mock<Operations>();
+    const nodeId = asNodeId('node-a');
+    const node: TgNodeAttributes = {
+      meta: {
+        matchCertainty: 83,
+      },
+    } as TgNodeAttributes;
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.matchCertainty', gt: 80 },
+      }).match(nodeId, node, graph),
+    ).toBe(true);
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.matchCertainty', gte: 83 },
+      }).match(nodeId, node, graph),
+    ).toBe(true);
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.matchCertainty', lt: 90 },
+      }).match(nodeId, node, graph),
+    ).toBe(true);
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.matchCertainty', lte: 82 },
+      }).match(nodeId, node, graph),
+    ).toBe(false);
+
+    expect(
+      NodeQuery.from({
+        attr: { key: 'meta.missing', lt: 90 },
+      }).match(nodeId, node, graph),
+    ).toBe(false);
+  });
+
   it('shoud handle string predicates when values are missing', () => {
     const graph = mock<Operations>();
     const nodeId = asNodeId('node-a');

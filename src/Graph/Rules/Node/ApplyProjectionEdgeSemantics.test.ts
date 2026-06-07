@@ -75,6 +75,12 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
               relationship: {
                 relation: 'depends_on',
                 source: 'derived',
+                semanticFact: {
+                  kind: 'publishes_to',
+                  confidence: 'heuristic',
+                  matchMode: 'wildcard_arn',
+                  matchCertainty: 73,
+                },
               },
             },
           },
@@ -109,6 +115,9 @@ describe('ApplyProjectionEdgeSemantics.apply', () => {
     ).toEqual({
       semantic: 'depends_on',
       role: 'primary',
+      confidence: 'heuristic',
+      matchMode: 'wildcard_arn',
+      matchCertainty: 73,
     });
     expect(
       updated.getEdgeAttributes(relationshipEdgeId)?.projection?.adjacency,

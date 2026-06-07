@@ -246,6 +246,18 @@ export class EdgeQuery {
         : [predicate.endsWith];
       return needles.some((item) => text.endsWith(item));
     }
+    if (predicate.lt !== undefined) {
+      return typeof value === 'number' && value < predicate.lt;
+    }
+    if (predicate.lte !== undefined) {
+      return typeof value === 'number' && value <= predicate.lte;
+    }
+    if (predicate.gt !== undefined) {
+      return typeof value === 'number' && value > predicate.gt;
+    }
+    if (predicate.gte !== undefined) {
+      return typeof value === 'number' && value >= predicate.gte;
+    }
     if (predicate.exists !== undefined) {
       return predicate.exists ? value !== undefined : value === undefined;
     }

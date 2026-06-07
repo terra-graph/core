@@ -46,6 +46,12 @@ describe('EdgeQuery', () => {
       },
       relationship: {
         relation: 'invokes',
+        semanticFact: {
+          kind: 'publishes_to',
+          confidence: 'capability',
+          matchMode: 'wildcard_arn',
+          matchCertainty: 83,
+        },
       },
     },
     label: 'edge-label',
@@ -338,6 +344,44 @@ describe('EdgeQuery', () => {
     ).toBe(false);
   });
 
+  it('should support numeric comparison predicates for edge attributes', () => {
+    expect(
+      EdgeQuery.from({
+        attr: {
+          key: 'projection.relationship.semanticFact.matchCertainty',
+          gt: 80,
+        },
+      }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
+    ).toBe(true);
+
+    expect(
+      EdgeQuery.from({
+        attr: {
+          key: 'projection.relationship.semanticFact.matchCertainty',
+          gte: 83,
+        },
+      }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
+    ).toBe(true);
+
+    expect(
+      EdgeQuery.from({
+        attr: {
+          key: 'projection.relationship.semanticFact.matchCertainty',
+          lt: 90,
+        },
+      }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
+    ).toBe(true);
+
+    expect(
+      EdgeQuery.from({
+        attr: {
+          key: 'projection.relationship.semanticFact.matchCertainty',
+          lte: 82,
+        },
+      }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
+    ).toBe(false);
+  });
+
   it('should cover predicate and path helper branches', () => {
     const helper = EdgeQuery as unknown as {
       compileSourceNodeConstraint(input: Record<string, unknown>): {
@@ -529,6 +573,11 @@ describe('EdgeQuery', () => {
     expect(helper.matchPredicate(undefined, { exists: true })).toBe(false);
     expect(helper.matchPredicate(undefined, { exists: false })).toBe(true);
     expect(helper.matchPredicate('value', { exists: false })).toBe(false);
+    expect(helper.matchPredicate(83, { gt: 80 })).toBe(true);
+    expect(helper.matchPredicate(83, { gte: 83 })).toBe(true);
+    expect(helper.matchPredicate(83, { lt: 90 })).toBe(true);
+    expect(helper.matchPredicate(83, { lte: 82 })).toBe(false);
+    expect(helper.matchPredicate('83', { gt: 80 })).toBe(false);
     expect(helper.matchPredicate('value', {})).toBe(false);
 
     expect(helper.getValueAtPath({ projection: { adjacency: true } }, '')).toBe(

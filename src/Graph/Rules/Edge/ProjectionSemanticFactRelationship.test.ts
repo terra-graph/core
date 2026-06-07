@@ -1,6 +1,7 @@
 import { DirectedGraph } from 'graphology';
 import { GraphologyAdapter } from '../../Adapters/GraphologyAdapter.js';
 import {
+  DefaultProjectionInferenceMethods,
   TG_SCHEMA_VERSION,
   TgGraph,
   asEdgeId,
@@ -121,7 +122,10 @@ describe('ProjectionSemanticFactRelationship', () => {
               layer: 'core',
               adjacency: {
                 source: 'derived',
-                evidence: 3,
+                evidence: {
+                  derivedBy: DefaultProjectionInferenceMethods.AnchorPath,
+                  evidenceCount: 3,
+                },
               },
               semantics: {
                 facts: [
@@ -131,6 +135,9 @@ describe('ProjectionSemanticFactRelationship', () => {
                     to: pipeId,
                     source: 'explicit_connection',
                     confidence: 'exact',
+                    attributes: {
+                      matchCertainty: 100,
+                    },
                   },
                 ],
               },
@@ -171,7 +178,15 @@ describe('ProjectionSemanticFactRelationship', () => {
     expect(result.getEdgeAttributes(edgeId)?.projection?.relationship).toEqual({
       relation: 'triggers',
       source: 'derived',
-      evidence: 3,
+      evidence: {
+        derivedBy: DefaultProjectionInferenceMethods.AnchorPath,
+        evidenceCount: 3,
+      },
+      semanticFact: {
+        kind: 'feeds',
+        confidence: 'exact',
+        matchCertainty: 100,
+      },
     });
   });
 

@@ -27,6 +27,22 @@ describe('QuerySchema', () => {
     });
   });
 
+  it('shoud parse numeric comparison predicates', () => {
+    const valid = QuerySchema.parse({
+      attr: {
+        key: 'projection.relationship.semanticFact.matchCertainty',
+        lt: 80,
+      },
+    });
+
+    expect(valid).toEqual({
+      attr: {
+        key: 'projection.relationship.semanticFact.matchCertainty',
+        lt: 80,
+      },
+    });
+  });
+
   it('shoud reject predicates that define multiple operations', () => {
     expect(() =>
       QuerySchema.parse({
@@ -37,7 +53,7 @@ describe('QuerySchema', () => {
         },
       }),
     ).toThrow(
-      'attr must specify exactly one of: eq | in | contains | startsWith | endsWith | exists',
+      'attr must specify exactly one of: eq | in | contains | startsWith | endsWith | lt | lte | gt | gte | exists',
     );
   });
 
