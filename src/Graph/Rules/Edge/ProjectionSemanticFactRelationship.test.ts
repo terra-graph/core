@@ -133,9 +133,11 @@ describe('ProjectionSemanticFactRelationship', () => {
                     kind: 'feeds',
                     from: queueId,
                     to: pipeId,
+                    decorator: 'tf.plan',
                     source: 'explicit_connection',
                     confidence: 'exact',
                     attributes: {
+                      matchMode: 'exact',
                       matchCertainty: 100,
                     },
                   },
@@ -173,7 +175,23 @@ describe('ProjectionSemanticFactRelationship', () => {
     });
 
     rule.match(queueId, queueNode, adapter);
+    const originalGetEdgeAttributes = adapter.getEdgeAttributes.bind(adapter);
+    const noLayerOutgoingEdge = jest
+      .spyOn(adapter, 'getEdgeAttributes')
+      .mockImplementation((candidateEdgeId) => {
+        const current = originalGetEdgeAttributes(candidateEdgeId);
+        if (!current || candidateEdgeId !== edgeId || !current.projection) {
+          return current;
+        }
+
+        const { layer: _layer, ...projectionWithoutLayer } = current.projection;
+        return {
+          ...current,
+          projection: projectionWithoutLayer,
+        } as typeof current;
+      });
     const result = rule.apply(queueId, queueNode, adapter);
+    noLayerOutgoingEdge.mockRestore();
 
     expect(result.getEdgeAttributes(edgeId)?.projection?.relationship).toEqual({
       relation: 'triggers',
@@ -184,10 +202,13 @@ describe('ProjectionSemanticFactRelationship', () => {
       },
       semanticFact: {
         kind: 'feeds',
+        decorator: 'tf.plan',
         confidence: 'exact',
+        matchMode: 'exact',
         matchCertainty: 100,
       },
     });
+    expect(result.getEdgeAttributes(edgeId)?.projection?.layer).toBe('core');
   });
 
   it('should skip incoming reversal when enforceDirection is disabled', () => {
@@ -362,10 +383,27 @@ describe('ProjectionSemanticFactRelationship', () => {
     });
 
     rule.match(queueId, queueNode, adapter);
+    const originalGetEdgeAttributes = adapter.getEdgeAttributes.bind(adapter);
+    const noLayerIncomingEdge = jest
+      .spyOn(adapter, 'getEdgeAttributes')
+      .mockImplementation((candidateEdgeId) => {
+        const current = originalGetEdgeAttributes(candidateEdgeId);
+        if (!current || candidateEdgeId !== edgeId || !current.projection) {
+          return current;
+        }
+
+        const { layer: _layer, ...projectionWithoutLayer } = current.projection;
+        return {
+          ...current,
+          projection: projectionWithoutLayer,
+        } as typeof current;
+      });
     const result = rule.apply(queueId, queueNode, adapter);
+    noLayerIncomingEdge.mockRestore();
 
     expect(result.edgeSource(edgeId)).toBe(queueId);
     expect(result.edgeTarget(edgeId)).toBe(pipeId);
+    expect(result.getEdgeAttributes(edgeId)?.projection?.layer).toBe('core');
     expect(
       result.getEdgeAttributes(edgeId)?.projection?.relationship?.relation,
     ).toBe('triggers');

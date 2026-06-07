@@ -46,7 +46,7 @@ const findSemanticFact = (
 const buildRelationshipAttributes = (
   edge: TgEdgeAttributes,
   relation: TgProjectionRelationshipRelation,
-  fact?: TgSemanticFact,
+  fact: TgSemanticFact,
 ) => ({
   ...edge.projection?.relationship,
   relation,
@@ -54,19 +54,17 @@ const buildRelationshipAttributes = (
   evidence:
     edge.projection?.relationship?.evidence ??
     edge.projection?.adjacency?.evidence,
-  semanticFact: fact
-    ? {
-        kind: fact.kind,
-        confidence: fact.confidence,
-        ...(fact.decorator !== undefined ? { decorator: fact.decorator } : {}),
-        ...(typeof fact.attributes?.matchMode === 'string'
-          ? { matchMode: fact.attributes.matchMode }
-          : {}),
-        ...(isFiniteNumber(fact.attributes?.matchCertainty)
-          ? { matchCertainty: fact.attributes.matchCertainty }
-          : {}),
-      }
-    : edge.projection?.relationship?.semanticFact,
+  semanticFact: {
+    kind: fact.kind,
+    confidence: fact.confidence,
+    ...(fact.decorator !== undefined ? { decorator: fact.decorator } : {}),
+    ...(typeof fact.attributes?.matchMode === 'string'
+      ? { matchMode: fact.attributes.matchMode }
+      : {}),
+    ...(isFiniteNumber(fact.attributes?.matchCertainty)
+      ? { matchCertainty: fact.attributes.matchCertainty }
+      : {}),
+  },
 });
 
 export class ProjectionSemanticFactRelationship extends EdgeRule {
@@ -166,8 +164,8 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
       updated = updated.setEdge(edgeId, nodeId, targetId, {
         ...current,
         projection: {
-          layer: current.projection?.layer ?? 'core',
           ...current.projection,
+          layer: current.projection?.layer ?? 'core',
           relationship: buildRelationshipAttributes(
             current,
             options.relation,
@@ -213,8 +211,8 @@ export class ProjectionSemanticFactRelationship extends EdgeRule {
         updated = updated.removeEdge(edgeId).setEdge(edgeId, nodeId, sourceId, {
           ...current,
           projection: {
-            layer: current.projection?.layer ?? 'core',
             ...current.projection,
+            layer: current.projection?.layer ?? 'core',
             relationship: buildRelationshipAttributes(
               current,
               options.relation,
