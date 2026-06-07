@@ -1,3 +1,10 @@
+# [1.0.0-rc.30](https://github.com/terra-graph/core/compare/v1.0.0-rc.29...v1.0.0-rc.30) (2026-06-07)
+
+
+### Features
+
+* stronger projection semantics ([bef2777](https://github.com/terra-graph/core/commit/bef2777e24670f37163f938d30ac68be172260ec))
+
 # [1.0.0-rc.29](https://github.com/terra-graph/core/compare/v1.0.0-rc.28...v1.0.0-rc.29) (2026-06-05)
 
 
