@@ -1,4 +1,4 @@
-import { DirectedGraph } from 'graphology';
+import { MultiDirectedGraph } from 'graphology';
 import type { AbstractGraph as Graphology } from 'graphology-types';
 import { isObjectRecord } from '../../ObjectUtilities.js';
 import { AdapterOperations } from '../Operations/Operations.js';
@@ -31,7 +31,9 @@ export enum GraphAttributeKey {
 }
 
 export class GraphologyAdapter implements AdapterOperations {
-  constructor(protected readonly graph: Graphology = new DirectedGraph()) {}
+  constructor(
+    protected readonly graph: Graphology = new MultiDirectedGraph(),
+  ) {}
 
   public withTgGraph(tg: TgGraph): this {
     return this.mutateGraph((graph) => {

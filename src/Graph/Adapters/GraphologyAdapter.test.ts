@@ -437,6 +437,42 @@ describe('GraphologyAdapter.withTgGraph', () => {
 
     expect(updated.toTgGraph()).toStrictEqual(tg);
   });
+
+  it('shoud allow parallel edges when using the default graph implementation', () => {
+    const sourceId = asNodeId('parallel-source');
+    const targetId = asNodeId('parallel-target');
+    const firstEdgeId = asEdgeId('parallel-edge-1');
+    const secondEdgeId = asEdgeId('parallel-edge-2');
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [sourceId]: { id: sourceId },
+        [targetId]: { id: targetId },
+      },
+      edges: [
+        {
+          id: firstEdgeId,
+          from: sourceId,
+          to: targetId,
+          attributes: { ordinal: 1 },
+        },
+        {
+          id: secondEdgeId,
+          from: sourceId,
+          to: targetId,
+          attributes: { ordinal: 2 },
+        },
+      ],
+    };
+
+    const updated = new GraphologyAdapter().withTgGraph(tg);
+
+    expect(updated.edgesBetween(sourceId, targetId)).toEqual(
+      expect.arrayContaining([firstEdgeId, secondEdgeId]),
+    );
+    expect(updated.toTgGraph()).toStrictEqual(tg);
+  });
 });
 
 describe('GraphologyAdapter.toTgGraph', () => {
