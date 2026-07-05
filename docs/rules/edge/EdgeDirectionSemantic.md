@@ -15,18 +15,22 @@ Supports: `Any adapter`
 
 **Options**
 - Required. `semantic` can be any non-empty string.
-- Optional defaults are available as `DefaultEdgeDirectionSemantics` from `@terra-graph/core`.
+- Optional defaults are available as `DefaultEdgeSemantics` from `@terra-graph/core`.
 
 **Behavior**
-- Writes `directionSemantic` on matching edges.
+- Writes `hints.semantic` on matching edges.
 - If `enforceDirection` is true, inbound edges from matching nodes are reversed and updated.
 
 **Example**
 ```ts
-import { EdgeDirectionSemantic } from '@terra-graph/core/Graph/Rules/Edge/EdgeDirectionSemantic.js';
+import { EdgeSemantic } from '@terra-graph/core/Graph/Rules/Edge/EdgeSemantic.js';
 
-const rule = new EdgeDirectionSemantic({
+const rule = new EdgeSemantic({
   edge: { from: { any: true }, to: { any: true } },
-  options: { semantic: 'invokes', overwrite: false, enforceDirection: true },
+  options: {
+    semantic: { semantic: 'invokes', role: 'primary' },
+    overwrite: false,
+    enforceDirection: true,
+  },
 });
 ```

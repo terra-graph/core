@@ -200,13 +200,6 @@ describe('ProjectionSemanticFactRelationship', () => {
         derivedBy: DefaultProjectionInferenceMethods.AnchorPath,
         evidenceCount: 3,
       },
-      semanticFact: {
-        kind: 'feeds',
-        decorator: 'tf.plan',
-        confidence: 'exact',
-        matchMode: 'exact',
-        matchCertainty: 100,
-      },
     });
     expect(result.getEdgeAttributes(edgeId)?.projection?.layer).toBe('core');
   });

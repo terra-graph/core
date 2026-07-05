@@ -4,7 +4,7 @@ Type: `EdgeRule`
 Supports: `Any adapter`
 
 **Summary**
-- Adds legend entries based on `directionSemantic` values.
+- Adds legend entries based on `hints.semantic.semantic` values.
 
 **Config**
 - `edge.from`: NodeQuery DSL for source nodes.
@@ -14,10 +14,10 @@ Supports: `Any adapter`
 
 **Options**
 - Required. `legendBySemantic` keys must be non-empty strings.
-- Optional defaults are available as `DefaultEdgeDirectionSemantics` from `@terra-graph/core`.
+- Optional defaults are available as `DefaultEdgeSemantics` from `@terra-graph/core`.
 
 **Behavior**
-- Only applies to edges that already have a `directionSemantic`.
+- Only applies to edges that already have `hints.semantic`.
 - Optionally overwrites existing `legend` values.
 
 **Example**

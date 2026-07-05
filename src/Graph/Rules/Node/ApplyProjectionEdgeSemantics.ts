@@ -24,19 +24,9 @@ const projectionSemanticHintFor = (
 
   const relationshipRelation = edge.projection?.relationship?.relation;
   if (relationshipRelation) {
-    const semanticFact = edge.projection?.relationship?.semanticFact;
     return {
       semantic: relationshipRelation,
       role: DefaultEdgeSemanticRoles.Primary,
-      ...(semanticFact?.confidence !== undefined
-        ? { confidence: semanticFact.confidence }
-        : {}),
-      ...(semanticFact?.matchMode !== undefined
-        ? { matchMode: semanticFact.matchMode }
-        : {}),
-      ...(semanticFact?.matchCertainty !== undefined
-        ? { matchCertainty: semanticFact.matchCertainty }
-        : {}),
     };
   }
 
@@ -46,12 +36,7 @@ const projectionSemanticHintFor = (
 const sameProjectionSemanticHint = (
   current: TgEdgeSemanticHint | undefined,
   next: TgEdgeSemanticHint,
-): boolean =>
-  current?.semantic === next.semantic &&
-  current.role === next.role &&
-  current.confidence === next.confidence &&
-  current.matchMode === next.matchMode &&
-  current.matchCertainty === next.matchCertainty;
+): boolean => current?.semantic === next.semantic && current.role === next.role;
 
 const shouldRetainNeutralAdjacencyEdge = (
   edge: ReturnType<AdapterOperations['getEdgeAttributes']>,

@@ -30,14 +30,14 @@ describe('QuerySchema', () => {
   it('shoud parse numeric comparison predicates', () => {
     const valid = QuerySchema.parse({
       attr: {
-        key: 'projection.relationship.semanticFact.matchCertainty',
+        key: 'projection.adjacency.evidence.evidenceCount',
         lt: 80,
       },
     });
 
     expect(valid).toEqual({
       attr: {
-        key: 'projection.relationship.semanticFact.matchCertainty',
+        key: 'projection.adjacency.evidence.evidenceCount',
         lt: 80,
       },
     });

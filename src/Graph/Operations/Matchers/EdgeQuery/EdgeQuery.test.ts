@@ -43,15 +43,13 @@ describe('EdgeQuery', () => {
       layer: 'core',
       adjacency: {
         source: 'derived',
+        evidence: {
+          derivedBy: 'anchor_path',
+          evidenceCount: 83,
+        },
       },
       relationship: {
         relation: 'invokes',
-        semanticFact: {
-          kind: 'publishes_to',
-          confidence: 'capability',
-          matchMode: 'wildcard_arn',
-          matchCertainty: 83,
-        },
       },
     },
     label: 'edge-label',
@@ -348,7 +346,7 @@ describe('EdgeQuery', () => {
     expect(
       EdgeQuery.from({
         attr: {
-          key: 'projection.relationship.semanticFact.matchCertainty',
+          key: 'projection.adjacency.evidence.evidenceCount',
           gt: 80,
         },
       }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
@@ -357,7 +355,7 @@ describe('EdgeQuery', () => {
     expect(
       EdgeQuery.from({
         attr: {
-          key: 'projection.relationship.semanticFact.matchCertainty',
+          key: 'projection.adjacency.evidence.evidenceCount',
           gte: 83,
         },
       }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
@@ -366,7 +364,7 @@ describe('EdgeQuery', () => {
     expect(
       EdgeQuery.from({
         attr: {
-          key: 'projection.relationship.semanticFact.matchCertainty',
+          key: 'projection.adjacency.evidence.evidenceCount',
           lt: 90,
         },
       }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
@@ -375,7 +373,7 @@ describe('EdgeQuery', () => {
     expect(
       EdgeQuery.from({
         attr: {
-          key: 'projection.relationship.semanticFact.matchCertainty',
+          key: 'projection.adjacency.evidence.evidenceCount',
           lte: 82,
         },
       }).matchEdge(sourceId, sourceNode, targetId, targetNode, edge, graph),
