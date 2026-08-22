@@ -135,6 +135,42 @@ describe('GraphResolver.resolve', () => {
     }
   }
 
+  class AsyncAddNodeRule extends NodeRule {
+    constructor(
+      config: ConstructorParameters<typeof NodeRule>[0],
+      private readonly nodeIdToAdd: NodeId,
+    ) {
+      super(config);
+    }
+
+    public override async apply(
+      nodeId: NodeId,
+      _node: TgNodeAttributes,
+      graph: AdapterOperations,
+    ): Promise<AdapterOperations> {
+      if (!this.wasMatched(nodeId)) {
+        return graph;
+      }
+      if (nodeId !== asNodeId('resolver.node-a')) {
+        return graph;
+      }
+      return graph.setNodeAttributes(this.nodeIdToAdd, {
+        id: this.nodeIdToAdd,
+        label: String(this.nodeIdToAdd),
+      });
+    }
+  }
+
+  class AsyncThrowingApplyRule extends NodeRule {
+    public override async apply(
+      _nodeId: NodeId,
+      _node: TgNodeAttributes,
+      _graph: AdapterOperations,
+    ): Promise<AdapterOperations> {
+      throw new Error('async apply failed');
+    }
+  }
+
   it('shoud initialize the adapter and skip processing when there are no rules', () => {
     const resolver = new GraphResolver(
       new GraphologyAdapter(new DirectedGraph()),
@@ -493,5 +529,312 @@ describe('GraphResolver.resolve', () => {
 
     expect(errorHandler).toHaveBeenCalledTimes(4);
     expect(result.nodeIds()).toHaveLength(0);
+  });
+
+  it('shoud reject asynchronous rules in the synchronous resolver', () => {
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+
+    expect(() =>
+      resolver.resolve({
+        graph: createGraph(),
+        phases: [
+          [
+            new AsyncAddNodeRule(
+              { node: { any: true } },
+              asNodeId('resolver.node-c'),
+            ),
+          ],
+        ],
+      }),
+    ).toThrow('Rule was unable to modify node');
+
+    try {
+      resolver.resolve({
+        graph: createGraph(),
+        phases: [
+          [
+            new AsyncAddNodeRule(
+              { node: { any: true } },
+              asNodeId('resolver.node-c'),
+            ),
+          ],
+        ],
+      });
+    } catch (error) {
+      expect((error as Error).cause).toEqual(
+        expect.objectContaining({
+          message:
+            "GraphResolver.resolve cannot apply asynchronous rules. Use 'GraphResolver.resolveAsync' instead.",
+        }),
+      );
+    }
+  });
+});
+
+describe('GraphResolver.resolveAsync', () => {
+  const createGraph = (): TgGraph => {
+    const a = asNodeId('resolver.node-a');
+    const b = asNodeId('resolver.node-b');
+    return {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [a]: { id: a, label: 'resolver.node-a' },
+        [b]: { id: b, label: 'resolver.node-b' },
+      },
+      edges: [],
+    };
+  };
+
+  class AsyncCountingRule extends NodeRule {
+    public applyCalls = 0;
+
+    public override async apply(
+      nodeId: NodeId,
+      _node: TgNodeAttributes,
+      graph: AdapterOperations,
+    ): Promise<AdapterOperations> {
+      if (!this.wasMatched(nodeId)) {
+        return graph;
+      }
+      this.applyCalls += 1;
+      return graph;
+    }
+  }
+
+  class AsyncAddNodeRule extends NodeRule {
+    constructor(
+      config: ConstructorParameters<typeof NodeRule>[0],
+      private readonly nodeIdToAdd: NodeId,
+    ) {
+      super(config);
+    }
+
+    public override async apply(
+      nodeId: NodeId,
+      _node: TgNodeAttributes,
+      graph: AdapterOperations,
+    ): Promise<AdapterOperations> {
+      if (!this.wasMatched(nodeId)) {
+        return graph;
+      }
+      if (nodeId !== asNodeId('resolver.node-a')) {
+        return graph;
+      }
+      return graph.setNodeAttributes(this.nodeIdToAdd, {
+        id: this.nodeIdToAdd,
+        label: String(this.nodeIdToAdd),
+      });
+    }
+  }
+
+  class AsyncThrowingApplyRule extends NodeRule {
+    public override async apply(
+      _nodeId: NodeId,
+      _node: TgNodeAttributes,
+      _graph: AdapterOperations,
+    ): Promise<AdapterOperations> {
+      throw new Error('async apply failed');
+    }
+  }
+
+  class UnsupportedAsyncRule extends NodeRule {
+    public applyCalls = 0;
+
+    public override supports(): boolean {
+      return false;
+    }
+
+    public override async apply(
+      _nodeId: NodeId,
+      _node: TgNodeAttributes,
+      graph: AdapterOperations,
+    ): Promise<AdapterOperations> {
+      this.applyCalls += 1;
+      return graph;
+    }
+  }
+
+  class ThrowingAsyncMatchRule extends NodeRule {
+    public override async apply(
+      _nodeId: NodeId,
+      _node: TgNodeAttributes,
+      graph: AdapterOperations,
+    ): Promise<AdapterOperations> {
+      return graph;
+    }
+
+    protected override matches(
+      _nodeId: NodeId,
+      _node: TgNodeAttributes,
+      _graph: AdapterOperations,
+    ): boolean {
+      throw new Error('async match failed');
+    }
+  }
+
+  it('shoud resolve an empty async phase plan', async () => {
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+
+    const result = await resolver.resolveAsync({
+      graph: createGraph(),
+      phases: undefined as unknown as [],
+    });
+
+    expect(result.nodeIds()).toHaveLength(2);
+  });
+
+  it('shoud await asynchronous rule application', async () => {
+    const logger = jest.fn();
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+      { logger },
+    );
+    const addedNodeId = asNodeId('resolver.node-c');
+    const counter = new AsyncCountingRule({ node: { any: true } });
+
+    const result = await resolver.resolveAsync({
+      graph: createGraph(),
+      phases: [
+        [new AsyncAddNodeRule({ node: { any: true } }, addedNodeId), counter],
+      ],
+    });
+
+    expect(result.nodeIds()).toContain(addedNodeId);
+    expect(counter.applyCalls).toBe(3);
+    expect(logger).toHaveBeenCalledWith('applying phase-1: 2 nodes');
+  });
+
+  it('shoud skip async match logging when describe is missing', async () => {
+    const logger = jest.fn();
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+      { logger },
+    );
+    const rule = new AsyncCountingRule({ node: { any: true } });
+    (rule as unknown as { describe?: undefined }).describe = undefined;
+
+    await resolver.resolveAsync({
+      graph: createGraph(),
+      phases: [[rule]],
+    });
+
+    expect(rule.applyCalls).toBe(2);
+    expect(logger).toHaveBeenCalledTimes(1);
+  });
+
+  it('shoud skip unsupported async rules', async () => {
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const rule = new UnsupportedAsyncRule({ node: { any: true } });
+
+    const result = await resolver.resolveAsync({
+      graph: createGraph(),
+      phases: [[rule]],
+    });
+
+    expect(result.nodeIds()).toHaveLength(2);
+    expect(rule.applyCalls).toBe(0);
+  });
+
+  it('shoud skip async rules when matching returns false', async () => {
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const rule = new AsyncCountingRule({
+      node: { nodeId: { eq: String(asNodeId('resolver.node-a')) } },
+    });
+
+    const result = await resolver.resolveAsync({
+      graph: createGraph(),
+      phases: [[rule]],
+    });
+
+    expect(result.nodeIds()).toHaveLength(2);
+    expect(rule.applyCalls).toBe(1);
+  });
+
+  it('shoud wrap async match failures when no error handler is provided', async () => {
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+
+    await expect(
+      resolver.resolveAsync({
+        graph: createGraph(),
+        phases: [[new ThrowingAsyncMatchRule({ node: { any: true } })]],
+      }),
+    ).rejects.toThrow('Rule was unable to match node');
+  });
+
+  it('shoud delegate async rule errors to the provided error handler', async () => {
+    const errorHandler = jest.fn();
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+      { errorHandler },
+    );
+
+    const result = await resolver.resolveAsync({
+      graph: createGraph(),
+      phases: [
+        [new ThrowingAsyncMatchRule({ node: { any: true } })],
+        [new AsyncThrowingApplyRule({ node: { any: true } })],
+      ],
+    });
+
+    expect(result.nodeIds()).toHaveLength(2);
+    expect(errorHandler).toHaveBeenCalledTimes(4);
+    expect(errorHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining('Rule was unable to modify node'),
+      }),
+    );
+  });
+
+  it('shoud default logPrefix when calling modifyAsync directly', async () => {
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
+      createGraph(),
+    );
+    const resolver = new GraphResolver(adapter);
+
+    const result = await (
+      resolver as unknown as {
+        modifyAsync: (
+          adapter: AdapterOperations,
+          rules: NodeRule[],
+          context?: PhaseRunnerContext,
+          logPrefix?: string,
+        ) => Promise<AdapterOperations>;
+      }
+    ).modifyAsync(adapter, [], undefined);
+
+    expect(result).toBe(adapter);
+  });
+
+  it('shoud skip missing nodes during async modification', async () => {
+    const adapter = mock<AdapterOperations>();
+    const resolver = new GraphResolver(adapter);
+    adapter.nodeIds.mockReturnValue([asNodeId('missing')]);
+    adapter.getNodeAttributes.mockReturnValue(undefined);
+    const rule = new AsyncCountingRule({ node: { any: true } });
+
+    const result = await (
+      resolver as unknown as {
+        modifyAsync: (
+          adapter: AdapterOperations,
+          rules: NodeRule[],
+          context?: PhaseRunnerContext,
+          logPrefix?: string,
+        ) => Promise<AdapterOperations>;
+      }
+    ).modifyAsync(adapter, [rule], undefined);
+
+    expect(result).toBe(adapter);
+    expect(rule.applyCalls).toBe(0);
   });
 });

@@ -3,6 +3,7 @@ export * from './Importer.js';
 export * from './Renderer.js';
 export * from './TgGraph.js';
 export * from './RuleError.js';
+export * from './RuleOptionsProvider.js';
 export * from './GraphResolver.js';
 export * from './GraphPlugin.js';
 export * from './Decorator.js';

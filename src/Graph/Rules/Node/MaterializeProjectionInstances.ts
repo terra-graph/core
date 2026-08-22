@@ -1,5 +1,6 @@
 import { isObjectRecord } from '../../../ObjectUtilities.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
+import { resolveRuleOptions } from '../../RuleOptionsProvider.js';
 import {
   DefaultProjectionAnchorRoles,
   DefaultProjectionDerivationSources,
@@ -289,6 +290,7 @@ const buildProjectionInstanceSeed = (
 };
 
 export class MaterializeProjectionInstances extends NodeRule {
+  private readonly optionsInput: unknown;
   private readonly optionsValue: MaterializeProjectionInstancesOptions;
 
   constructor(config: MaterializeProjectionInstancesInput) {
@@ -303,8 +305,9 @@ export class MaterializeProjectionInstances extends NodeRule {
           };
 
     super(normalizedConfig);
+    this.optionsInput = normalizedConfig.options;
     this.optionsValue = MaterializeProjectionInstances.parseOptions(
-      normalizedConfig.options,
+      resolveRuleOptions(normalizedConfig.options),
     );
   }
 
@@ -322,9 +325,11 @@ export class MaterializeProjectionInstances extends NodeRule {
       return graph;
     }
 
+    const optionsValue = MaterializeProjectionInstances.parseOptions(
+      resolveRuleOptions(this.optionsInput),
+    );
     if (
-      this.optionsValue.instanceStrategy !==
-      ProjectionInstanceStrategies.MatchByKey
+      optionsValue.instanceStrategy !== ProjectionInstanceStrategies.MatchByKey
     ) {
       return graph;
     }

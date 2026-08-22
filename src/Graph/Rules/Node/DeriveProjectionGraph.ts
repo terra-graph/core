@@ -1,8 +1,10 @@
 import { isObjectRecord } from '../../../ObjectUtilities.js';
 import { NodeQuery } from '../../Operations/Matchers/NodeQuery/NodeQuery.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
+import { resolveRuleOptions } from '../../RuleOptionsProvider.js';
 import {
   DefaultProjectionAnchorRoles,
+  DefaultProjectionDerivationSources,
   DefaultProjectionInferenceMethods,
   DefaultProjectionLayers,
   DefaultProjectionMembershipRelations,
@@ -511,8 +513,10 @@ const DEFAULT_PROJECTION_INSTANCE_STRATEGIES: Record<
 };
 
 export class DeriveProjectionGraph extends NodeRule {
+  private readonly optionsInput: unknown;
+  private readonly dependencies: DeriveProjectionGraphDependencies;
   private readonly optionsValue: DeriveProjectionGraphOptions;
-  private readonly instanceStrategy: ProjectionInstanceStrategy;
+  private instanceStrategy: ProjectionInstanceStrategy;
 
   constructor(config: DeriveProjectionGraphInput, ...args: unknown[]) {
     const normalizedConfig: NodeRuleConfig =
@@ -531,14 +535,14 @@ export class DeriveProjectionGraph extends NodeRule {
       );
     }
     super(normalizedConfig);
+    this.optionsInput = normalizedConfig.options;
     this.optionsValue = DeriveProjectionGraph.parseOptions(
-      normalizedConfig.options,
+      resolveRuleOptions(normalizedConfig.options),
     );
-    const dependencies = this.resolveDependencies(args[0]);
-    const instanceStrategyName = this.optionsValue.instanceStrategy;
-    this.instanceStrategy =
-      dependencies.instanceStrategies?.[instanceStrategyName] ??
-      DEFAULT_PROJECTION_INSTANCE_STRATEGIES[instanceStrategyName];
+    this.dependencies = this.resolveDependencies(args[0]);
+    this.instanceStrategy = this.resolveInstanceStrategy(
+      this.optionsValue.instanceStrategy,
+    );
   }
 
   public override apply(
@@ -555,7 +559,11 @@ export class DeriveProjectionGraph extends NodeRule {
       return graph;
     }
 
-    const resolved = this.resolveProjections();
+    const optionsValue = this.resolveOptions();
+    this.instanceStrategy = this.resolveInstanceStrategy(
+      optionsValue.instanceStrategy,
+    );
+    const resolved = this.resolveProjections(optionsValue);
     if (resolved.length === 0) {
       return graph;
     }
@@ -661,7 +669,9 @@ export class DeriveProjectionGraph extends NodeRule {
             existingProjection?.derivation?.instanceOrdinal ??
             seed.instanceOrdinal;
           const derivation = {
-            source: existingProjection?.derivation?.source ?? 'plugin',
+            source:
+              existingProjection?.derivation?.source ??
+              DefaultProjectionDerivationSources.Plugin,
             projectionName:
               existingProjection?.derivation?.projectionName ?? projection.name,
             groupKey: existingProjection?.derivation?.groupKey ?? seed.groupKey,
@@ -782,8 +792,25 @@ export class DeriveProjectionGraph extends NodeRule {
     return updated;
   }
 
-  private resolveProjections(): ResolvedProjectionDefinition[] {
-    return this.optionsValue.projections.map((projection) => ({
+  private resolveOptions(): DeriveProjectionGraphOptions {
+    return DeriveProjectionGraph.parseOptions(
+      resolveRuleOptions(this.optionsInput),
+    );
+  }
+
+  private resolveInstanceStrategy(
+    instanceStrategyName: ProjectionInstanceStrategyName,
+  ): ProjectionInstanceStrategy {
+    return (
+      this.dependencies.instanceStrategies?.[instanceStrategyName] ??
+      DEFAULT_PROJECTION_INSTANCE_STRATEGIES[instanceStrategyName]
+    );
+  }
+
+  private resolveProjections(
+    optionsValue: DeriveProjectionGraphOptions = this.resolveOptions(),
+  ): ResolvedProjectionDefinition[] {
+    return optionsValue.projections.map((projection) => ({
       ...projection,
       layer: projection.layer ?? DefaultProjectionLayers.Core,
       membership: {

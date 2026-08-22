@@ -17,6 +17,8 @@ type RuleClass<TConfig extends RuleConfig> = new (
 
 export type EdgeRuleMatcher = EdgeQuery;
 
+export type RuleApplyResult = AdapterOperations | Promise<AdapterOperations>;
+
 export abstract class BaseRule<TConfig extends RuleConfig = RuleConfig> {
   private static registry: Record<string, RuleFactory> = {};
   private lastMatch = false;
@@ -79,7 +81,7 @@ export abstract class BaseRule<TConfig extends RuleConfig = RuleConfig> {
     nodeId: NodeId,
     node: TgNodeAttributes,
     graph: AdapterOperations,
-  ): AdapterOperations;
+  ): RuleApplyResult;
 
   public serialize(): SerializedRule {
     return {

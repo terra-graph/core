@@ -81,6 +81,7 @@ export const DefaultProjectionDerivationSources = {
   Plugin: 'plugin',
   Profile: 'profile',
   Inferred: 'inferred',
+  Ai: 'ai',
 } as const;
 
 export type TgProjectionDerivationSource =

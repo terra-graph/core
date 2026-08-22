@@ -36,6 +36,28 @@ export class GraphResolver {
     return adapter;
   }
 
+  public async resolveAsync(
+    input: GraphResolverInput,
+  ): Promise<AdapterOperations> {
+    let adapter = this.adapter.withTgGraph(input.graph);
+    const phases = input.phases ?? [];
+    for (const [index, phase] of phases.entries()) {
+      const phaseLabel = `phase-${index + 1}`;
+      this.log(
+        this.context,
+        `applying ${phaseLabel}: ${adapter.nodeIds().length} nodes`,
+      );
+      adapter = await this.modifyAsync(
+        adapter,
+        phase,
+        this.context,
+        phaseLabel,
+      );
+    }
+
+    return adapter;
+  }
+
   private modify(
     adapter: AdapterOperations,
     rules: BaseRule[],
@@ -66,7 +88,9 @@ export class GraphResolver {
               if (!rule.supports(updated)) {
                 continue;
               }
-              updated = rule.apply(nodeId, node, updated);
+              updated = this.assertSyncApplyResult(
+                rule.apply(nodeId, node, updated),
+              );
             } catch (e) {
               throw new RuleModifyError(
                 { cause: e as Error },
@@ -93,6 +117,77 @@ export class GraphResolver {
       }
     }
     return updated;
+  }
+
+  private async modifyAsync(
+    adapter: AdapterOperations,
+    rules: BaseRule[],
+    context?: PhaseRunnerContext,
+    logPrefix = 'phase',
+  ): Promise<AdapterOperations> {
+    let updated = adapter;
+    for (const rule of rules) {
+      const nodeIds = updated.nodeIds();
+      for (const nodeId of nodeIds) {
+        const node = updated.getNodeAttributes(nodeId);
+        if (!node) {
+          continue;
+        }
+        try {
+          if (rule.match(nodeId, node, updated)) {
+            if (rule.describe) {
+              this.log(
+                context,
+                this.logMessage(
+                  `${logPrefix}:match`,
+                  rule.describe(nodeId, node),
+                  nodeId,
+                ),
+              );
+            }
+            try {
+              if (!rule.supports(updated)) {
+                continue;
+              }
+              updated = await rule.apply(nodeId, node, updated);
+            } catch (e) {
+              throw new RuleModifyError(
+                { cause: e as Error },
+                {
+                  nodeId: nodeId as unknown as string,
+                  nodeAttributes: node,
+                },
+              );
+            }
+          }
+        } catch (e) {
+          if (!(e instanceof RuleModifyError)) {
+            // biome-ignore lint/suspicious/noCatchAssign: <explanation>
+            e = new RuleMatchError(
+              { cause: e as Error },
+              {
+                nodeId: nodeId as unknown as string,
+                nodeAttributes: node,
+              },
+            );
+          }
+          this.handleError(context, e as Error);
+        }
+      }
+    }
+    return updated;
+  }
+
+  private assertSyncApplyResult(
+    result: AdapterOperations | Promise<AdapterOperations>,
+  ): AdapterOperations {
+    if (result instanceof Promise) {
+      throw new Error(
+        `GraphResolver.resolve cannot apply asynchronous rules. Use '${GraphResolver.name}.resolveAsync' instead.`,
+      );
+    }
+
+    return result;
   }
 
   private log(context: PhaseRunnerContext | undefined, message: string) {
