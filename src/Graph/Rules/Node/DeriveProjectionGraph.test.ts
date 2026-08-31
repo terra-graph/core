@@ -4,6 +4,7 @@ import { GraphResolver } from '../../GraphResolver.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
 import {
   DefaultProjectionAnchorRoles,
+  DefaultProjectionDerivationSources,
   DefaultProjectionLayers,
   DefaultProjectionMembershipRelations,
   NodeId,
@@ -362,6 +363,55 @@ describe('DeriveProjectionGraph', () => {
         viaResourceTypes: ['aws_apigatewayv2_integration'],
       },
     });
+  });
+
+  it('shoud resolve async options providers during projection derivation', async () => {
+    const database = tgNodeIdFrom('resource', 'aws_db_instance.database');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [database]: {
+          id: database,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_db_instance.database',
+            resource: 'aws_db_instance',
+            name: 'database',
+          },
+        },
+      },
+      edges: [],
+    };
+    const rule = createRule({
+      getRuleOptions: async () => ({
+        projections: [
+          {
+            name: 'aws.rds',
+            derivationSource: DefaultProjectionDerivationSources.Ai,
+            rootNode: {
+              attr: {
+                key: 'terraform.resource',
+                eq: 'aws_db_instance',
+              },
+            },
+          },
+        ],
+      }),
+    });
+    const resolved = await new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    ).resolveAsync({
+      graph,
+      phases: [[rule]],
+    });
+    const projection = resolved.getNodeAttributes(
+      tgProjectionNodeIdFrom('core', 'aws.rds:database'),
+    )?.projection;
+
+    expect(projection?.derivation?.source).toBe(
+      DefaultProjectionDerivationSources.Ai,
+    );
   });
 
   it('should cover indexed-seed and relationship helper edge cases', () => {

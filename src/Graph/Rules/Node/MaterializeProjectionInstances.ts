@@ -1,6 +1,9 @@
 import { isObjectRecord } from '../../../ObjectUtilities.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
-import { resolveRuleOptions } from '../../RuleOptionsProvider.js';
+import {
+  isRuleOptionsProvider,
+  resolveRuleOptions,
+} from '../../RuleOptionsProvider.js';
 import {
   DefaultProjectionAnchorRoles,
   DefaultProjectionDerivationSources,
@@ -13,7 +16,7 @@ import {
   edgeIdFrom,
   tgProjectionNodeIdFrom,
 } from '../../TgGraph.js';
-import { NodeRule } from '../Rule.js';
+import { NodeRule, type RuleApplyResult } from '../Rule.js';
 import { NodeRuleConfig } from '../RuleConfig.js';
 import {
   ProjectionInstanceStrategies,
@@ -307,7 +310,9 @@ export class MaterializeProjectionInstances extends NodeRule {
     super(normalizedConfig);
     this.optionsInput = normalizedConfig.options;
     this.optionsValue = MaterializeProjectionInstances.parseOptions(
-      resolveRuleOptions(normalizedConfig.options),
+      MaterializeProjectionInstances.resolveInitialOptions(
+        normalizedConfig.options,
+      ),
     );
   }
 
@@ -315,7 +320,7 @@ export class MaterializeProjectionInstances extends NodeRule {
     nodeId: NodeId,
     _node: TgNodeAttributes,
     graph: AdapterOperations,
-  ): AdapterOperations {
+  ): RuleApplyResult {
     if (!this.wasMatched(nodeId)) {
       return graph;
     }
@@ -325,9 +330,20 @@ export class MaterializeProjectionInstances extends NodeRule {
       return graph;
     }
 
-    const optionsValue = MaterializeProjectionInstances.parseOptions(
-      resolveRuleOptions(this.optionsInput),
-    );
+    const optionsResult = this.resolveOptions(graph, nodeId);
+    if (optionsResult instanceof Promise) {
+      return optionsResult.then((optionsValue) =>
+        this.applyWithOptions(graph, optionsValue),
+      );
+    }
+
+    return this.applyWithOptions(graph, optionsResult);
+  }
+
+  private applyWithOptions(
+    graph: AdapterOperations,
+    optionsValue: MaterializeProjectionInstancesOptions,
+  ): AdapterOperations {
     if (
       optionsValue.instanceStrategy !== ProjectionInstanceStrategies.MatchByKey
     ) {
@@ -481,6 +497,22 @@ export class MaterializeProjectionInstances extends NodeRule {
     }
 
     return updated;
+  }
+
+  private resolveOptions(
+    graph: AdapterOperations,
+    nodeId: NodeId,
+  ):
+    | MaterializeProjectionInstancesOptions
+    | Promise<MaterializeProjectionInstancesOptions> {
+    const result = resolveRuleOptions(this.optionsInput, { graph, nodeId });
+    if (result instanceof Promise) {
+      return result.then((value) =>
+        MaterializeProjectionInstances.parseOptions(value),
+      );
+    }
+
+    return MaterializeProjectionInstances.parseOptions(result);
   }
 
   private expandLogicalProjection(
@@ -764,6 +796,16 @@ export class MaterializeProjectionInstances extends NodeRule {
         ? input.instanceStrategy
         : ProjectionInstanceStrategies.None,
     };
+  }
+
+  private static resolveInitialOptions(input: unknown): unknown {
+    if (isRuleOptionsProvider(input)) {
+      return {
+        instanceStrategy: ProjectionInstanceStrategies.None,
+      };
+    }
+
+    return input;
   }
 
   private stateOrdinal(

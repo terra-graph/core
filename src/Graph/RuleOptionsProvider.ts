@@ -1,5 +1,15 @@
+import type { AdapterOperations } from './Operations/Operations.js';
+import type { NodeId } from './TgGraph.js';
+
+export type RuleOptionsProviderContext = {
+  graph?: AdapterOperations;
+  nodeId?: NodeId;
+};
+
 export interface RuleOptionsProvider<TOptions = unknown> {
-  getRuleOptions(): TOptions;
+  getRuleOptions(
+    context?: RuleOptionsProviderContext,
+  ): TOptions | Promise<TOptions>;
 }
 
 export const isRuleOptionsProvider = <TOptions = unknown>(
@@ -10,5 +20,8 @@ export const isRuleOptionsProvider = <TOptions = unknown>(
 
 export const resolveRuleOptions = <TOptions>(
   value: TOptions | RuleOptionsProvider<TOptions>,
-): TOptions =>
-  isRuleOptionsProvider<TOptions>(value) ? value.getRuleOptions() : value;
+  context?: RuleOptionsProviderContext,
+): TOptions | Promise<TOptions> =>
+  isRuleOptionsProvider<TOptions>(value)
+    ? value.getRuleOptions(context)
+    : value;

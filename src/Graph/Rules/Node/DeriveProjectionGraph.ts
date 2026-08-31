@@ -1,7 +1,10 @@
 import { isObjectRecord } from '../../../ObjectUtilities.js';
 import { NodeQuery } from '../../Operations/Matchers/NodeQuery/NodeQuery.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
-import { resolveRuleOptions } from '../../RuleOptionsProvider.js';
+import {
+  isRuleOptionsProvider,
+  resolveRuleOptions,
+} from '../../RuleOptionsProvider.js';
 import {
   DefaultProjectionAnchorRoles,
   DefaultProjectionDerivationSources,
@@ -12,13 +15,14 @@ import {
   TgEdgeAttributes,
   TgNodeAttributes,
   TgNodeProjectionAnchor,
+  TgProjectionDerivationSource,
   TgProjectionInferenceEvidence,
   TgProjectionLayer,
   TgProjectionMembershipRelation,
   edgeIdFrom,
   tgProjectionNodeIdFrom,
 } from '../../TgGraph.js';
-import { NodeRule } from '../Rule.js';
+import { NodeRule, type RuleApplyResult } from '../Rule.js';
 import { NodeRuleConfig } from '../RuleConfig.js';
 
 type ProjectionMembershipOptions = {
@@ -48,6 +52,7 @@ export type ProjectionInstanceStrategyName =
 export type ProjectionDefinition = {
   name: string;
   layer?: TgProjectionLayer;
+  derivationSource?: TgProjectionDerivationSource;
   rootNode: ReturnType<NodeQuery['getDsl']>;
   membership?: ProjectionMembershipOptions;
   relationships?: ProjectionRelationshipOptions;
@@ -310,6 +315,14 @@ const isProjectionInstanceStrategyName = (
   value === ProjectionInstanceStrategies.None ||
   value === ProjectionInstanceStrategies.MatchByKey;
 
+const isProjectionDerivationSource = (
+  value: unknown,
+): value is TgProjectionDerivationSource =>
+  typeof value === 'string' &&
+  Object.values(DefaultProjectionDerivationSources).includes(
+    value as TgProjectionDerivationSource,
+  );
+
 const formatProjectionInstanceSuffix = (key: string): string => {
   if (/^-?\d+$/.test(key)) {
     return `[${key}]`;
@@ -537,7 +550,7 @@ export class DeriveProjectionGraph extends NodeRule {
     super(normalizedConfig);
     this.optionsInput = normalizedConfig.options;
     this.optionsValue = DeriveProjectionGraph.parseOptions(
-      resolveRuleOptions(normalizedConfig.options),
+      DeriveProjectionGraph.resolveInitialOptions(normalizedConfig.options),
     );
     this.dependencies = this.resolveDependencies(args[0]);
     this.instanceStrategy = this.resolveInstanceStrategy(
@@ -549,7 +562,7 @@ export class DeriveProjectionGraph extends NodeRule {
     nodeId: NodeId,
     _node: TgNodeAttributes,
     graph: AdapterOperations,
-  ): AdapterOperations {
+  ): RuleApplyResult {
     if (!this.wasMatched(nodeId)) {
       return graph;
     }
@@ -559,7 +572,21 @@ export class DeriveProjectionGraph extends NodeRule {
       return graph;
     }
 
-    const optionsValue = this.resolveOptions();
+    const optionsResult = this.resolveOptions(graph, nodeId);
+    if (optionsResult instanceof Promise) {
+      return optionsResult.then((optionsValue) =>
+        this.applyWithOptions(nodeId, graph, optionsValue),
+      );
+    }
+
+    return this.applyWithOptions(nodeId, graph, optionsResult);
+  }
+
+  private applyWithOptions(
+    nodeId: NodeId,
+    graph: AdapterOperations,
+    optionsValue: DeriveProjectionGraphOptions,
+  ): AdapterOperations {
     this.instanceStrategy = this.resolveInstanceStrategy(
       optionsValue.instanceStrategy,
     );
@@ -671,6 +698,7 @@ export class DeriveProjectionGraph extends NodeRule {
           const derivation = {
             source:
               existingProjection?.derivation?.source ??
+              projection.derivationSource ??
               DefaultProjectionDerivationSources.Plugin,
             projectionName:
               existingProjection?.derivation?.projectionName ?? projection.name,
@@ -792,10 +820,16 @@ export class DeriveProjectionGraph extends NodeRule {
     return updated;
   }
 
-  private resolveOptions(): DeriveProjectionGraphOptions {
-    return DeriveProjectionGraph.parseOptions(
-      resolveRuleOptions(this.optionsInput),
-    );
+  private resolveOptions(
+    graph: AdapterOperations,
+    nodeId: NodeId,
+  ): DeriveProjectionGraphOptions | Promise<DeriveProjectionGraphOptions> {
+    const result = resolveRuleOptions(this.optionsInput, { graph, nodeId });
+    if (result instanceof Promise) {
+      return result.then((value) => DeriveProjectionGraph.parseOptions(value));
+    }
+
+    return DeriveProjectionGraph.parseOptions(result);
   }
 
   private resolveInstanceStrategy(
@@ -808,7 +842,7 @@ export class DeriveProjectionGraph extends NodeRule {
   }
 
   private resolveProjections(
-    optionsValue: DeriveProjectionGraphOptions = this.resolveOptions(),
+    optionsValue: DeriveProjectionGraphOptions = this.optionsValue,
   ): ResolvedProjectionDefinition[] {
     return optionsValue.projections.map((projection) => ({
       ...projection,
@@ -1443,6 +1477,9 @@ export class DeriveProjectionGraph extends NodeRule {
             ? (entry.layer as TgProjectionLayer)
             : undefined,
         rootNode: entry.rootNode as ReturnType<NodeQuery['getDsl']>,
+        derivationSource: isProjectionDerivationSource(entry.derivationSource)
+          ? entry.derivationSource
+          : undefined,
         membership: isObjectRecord(entry.membership)
           ? {
               maxDepth:
@@ -1511,6 +1548,17 @@ export class DeriveProjectionGraph extends NodeRule {
         ? input.instanceStrategy
         : ProjectionInstanceStrategies.None,
     };
+  }
+
+  private static resolveInitialOptions(input: unknown): unknown {
+    if (isRuleOptionsProvider(input)) {
+      return {
+        projections: [],
+        instanceStrategy: ProjectionInstanceStrategies.None,
+      };
+    }
+
+    return input;
   }
 }
 
