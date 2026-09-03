@@ -11,12 +11,14 @@ import {
   type TgEdgeAttributes,
   TgGraph,
   type TgGraphHints,
+  type TgGraphMetadata,
   TgNode,
   TgNodeAttributes,
   TgNodeTerraform,
   type TgNodeTerraformState,
   type TgNodeTerraformStateBase,
   type TgNodeTerraformStateInstance,
+  type TgTerraformChanges,
   TgTerraformNodeKind,
   asNodeId,
   isTgTerraformNodeKind,
@@ -28,6 +30,8 @@ export enum GraphAttributeKey {
   Description = 'tg:description',
   SchemaVersion = 'tg:schemaVersion',
   Hints = 'tg:hints',
+  Metadata = 'tg:metadata',
+  Changes = 'tg:changes',
 }
 
 export class GraphologyAdapter implements AdapterOperations {
@@ -55,6 +59,8 @@ export class GraphologyAdapter implements AdapterOperations {
         tg.schemaVersion ?? TG_SCHEMA_VERSION,
       );
       graph.setAttribute(GraphAttributeKey.Hints, tg.hints);
+      graph.setAttribute(GraphAttributeKey.Metadata, tg.metadata);
+      graph.setAttribute(GraphAttributeKey.Changes, tg.changes);
     });
   }
 
@@ -110,6 +116,14 @@ export class GraphologyAdapter implements AdapterOperations {
       GraphAttributeKey.Hints,
       undefined,
     );
+    const metadata = this.readGraphAttribute<TgGraphMetadata | undefined>(
+      GraphAttributeKey.Metadata,
+      undefined,
+    );
+    const changes = this.readGraphAttribute<TgTerraformChanges | undefined>(
+      GraphAttributeKey.Changes,
+      undefined,
+    );
 
     return {
       schemaVersion,
@@ -117,6 +131,8 @@ export class GraphologyAdapter implements AdapterOperations {
       edges,
       description,
       ...(hints !== undefined ? { hints } : {}),
+      ...(metadata !== undefined ? { metadata } : {}),
+      ...(changes !== undefined ? { changes } : {}),
     };
   }
 

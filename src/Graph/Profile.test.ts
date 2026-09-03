@@ -489,6 +489,98 @@ describe('Profile.resolveRenderer', () => {
   });
 });
 
+describe('Profile.resolveMetadata', () => {
+  it('shoud return undefined when no metadata is set', () => {
+    const profile = new Profile('empty', {});
+
+    expect(profile.resolveMetadata()).toBeUndefined();
+  });
+
+  it('shoud return undefined when metadata objects are empty', () => {
+    const child = new Profile('child', {
+      metadata: {},
+    });
+    const parent = new Profile('parent', {
+      metadata: {},
+    }).use(child);
+
+    expect(parent.resolveMetadata()).toBeUndefined();
+  });
+
+  it('shoud resolve inherited metadata when no own metadata is set', () => {
+    const child = new Profile('child', {
+      metadata: {
+        environment: {
+          name: 'child-env',
+        },
+      },
+    });
+    const parent = new Profile('parent', {}).use(child);
+
+    expect(parent.resolveMetadata()).toEqual({
+      environment: {
+        name: 'child-env',
+      },
+    });
+  });
+
+  it('shoud merge inherited metadata and prefer own metadata values', () => {
+    const child = new Profile('child', {
+      metadata: {
+        version: {
+          parentId: 'child-parent',
+        },
+        environment: {
+          name: 'child-env',
+        },
+        labels: {
+          owner: 'platform',
+          priority: 'low',
+        },
+        terraform: {
+          workspace: 'default',
+        },
+      },
+    });
+    const parent = new Profile('parent', {
+      metadata: {
+        version: {
+          id: 'parent-version',
+        },
+        environment: {
+          name: 'parent-env',
+        },
+        source: {
+          ref: 'refs/heads/main',
+        },
+        labels: {
+          priority: 'high',
+        },
+      },
+    }).use(child);
+
+    expect(parent.resolveMetadata()).toEqual({
+      version: {
+        id: 'parent-version',
+        parentId: 'child-parent',
+      },
+      environment: {
+        name: 'parent-env',
+      },
+      source: {
+        ref: 'refs/heads/main',
+      },
+      terraform: {
+        workspace: 'default',
+      },
+      labels: {
+        owner: 'platform',
+        priority: 'high',
+      },
+    });
+  });
+});
+
 describe('Profile.resolvePhases', () => {
   it('shoud accept compatible supports declarations', () => {
     const profile = new Profile('supported', {

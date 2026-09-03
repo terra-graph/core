@@ -90,6 +90,10 @@ export class RuntimeCatalog {
     return this.resolveProfile(name).resolveRenderer();
   }
 
+  public resolveProfileMetadata(name: string) {
+    return this.resolveProfile(name).resolveMetadata();
+  }
+
   public resolveRenderer(
     name: string,
     adapter: AdapterOperations,

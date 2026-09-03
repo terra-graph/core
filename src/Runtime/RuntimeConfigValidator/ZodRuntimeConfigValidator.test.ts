@@ -112,6 +112,69 @@ describe('ZodRuntimeConfigValidator.validate', () => {
     expect(result.run?.outputs?.[1]?.renderer).toBe('json');
   });
 
+  it('shoud validate profile and run metadata', () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    const result = validator.validate({
+      profiles: {
+        base: {
+          metadata: {
+            environment: {
+              name: 'prod',
+            },
+            labels: {
+              team: 'platform',
+            },
+          },
+          phases: [],
+        },
+      },
+      run: {
+        profile: 'base',
+        metadata: {
+          version: {
+            id: 'run-2',
+            parentId: 'run-1',
+          },
+          terraform: {
+            workspace: 'default',
+          },
+          source: {
+            ref: 'refs/heads/main',
+            commit: 'abc123',
+            repository: 'git@example.com:org/repo.git',
+          },
+          tool: {
+            terraGraphCliVersion: '0.1.0',
+            terraGraphCoreVersion: '1.0.0-rc.30',
+          },
+        },
+      },
+    });
+
+    expect(result.profiles?.base.metadata?.environment?.name).toBe('prod');
+    expect(result.run?.metadata?.version?.id).toBe('run-2');
+  });
+
+  it('shoud reject invalid metadata keys', () => {
+    const validator = new ZodRuntimeConfigValidator();
+
+    expect(() =>
+      validator.validate({
+        profiles: {
+          base: {
+            metadata: {
+              environment: {
+                branch: 'main',
+              },
+            },
+            phases: [],
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
   it('shoud allow non-file writers without writerOptions.target', () => {
     const validator = new ZodRuntimeConfigValidator();
 

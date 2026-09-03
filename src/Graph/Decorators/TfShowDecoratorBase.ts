@@ -120,7 +120,7 @@ const decorateTerraformState = (
   ) as TgGraph['nodes'];
 
   return {
-    schemaVersion: graph.schemaVersion,
+    ...graph,
     description: { ...graph.description },
     nodes,
     edges: graph.edges.map((edge) => {

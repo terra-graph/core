@@ -185,6 +185,29 @@ describe('RuntimeCatalog.resolveProfileRenderer', () => {
   });
 });
 
+describe('RuntimeCatalog.resolveProfileMetadata', () => {
+  it('shoud resolve metadata through the profile registry', () => {
+    const profile = new Profile('example.profile', {
+      metadata: {
+        environment: {
+          name: 'prod',
+        },
+      },
+    });
+    const catalog = new RuntimeCatalog({
+      profiles: new ProfileRegistry({
+        'example.profile': profile,
+      }),
+    });
+
+    expect(catalog.resolveProfileMetadata('example.profile')).toEqual({
+      environment: {
+        name: 'prod',
+      },
+    });
+  });
+});
+
 describe('RuntimeCatalog.use', () => {
   it('shoud preserve existing registries when provider omits them', () => {
     const base = new RuntimeCatalog({

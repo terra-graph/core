@@ -438,6 +438,73 @@ describe('GraphologyAdapter.withTgGraph', () => {
     expect(updated.toTgGraph()).toStrictEqual(tg);
   });
 
+  it('shoud preserve graph metadata and terraform changes', () => {
+    const nodeId = tgNodeIdFrom('resource', 'aws_instance.app');
+    const tg: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      metadata: {
+        version: {
+          id: 'run-2',
+          parentId: 'run-1',
+        },
+        environment: {
+          name: 'prod',
+        },
+        terraform: {
+          workspace: 'default',
+        },
+        source: {
+          ref: 'refs/heads/main',
+          commit: 'abc123',
+          repository: 'git@example.com:org/repo.git',
+        },
+        labels: {
+          team: 'platform',
+        },
+        tool: {
+          terraGraphCliVersion: '0.1.0',
+          terraGraphCoreVersion: '1.0.0-rc.30',
+        },
+      },
+      changes: {
+        source: 'terraform_plan',
+        resources: {
+          'aws_instance.app': {
+            address: 'aws_instance.app',
+            nodeId,
+            matched: true,
+            previousAddress: 'aws_instance.old',
+            actions: ['update'],
+            actionReason: 'replace_because_tainted',
+            replacePaths: [['ami']],
+            beforeSensitive: {},
+            afterSensitive: {},
+            afterUnknown: {
+              id: true,
+            },
+          },
+        },
+      },
+      nodes: {
+        [nodeId]: {
+          id: nodeId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_instance.app',
+            resource: 'aws_instance',
+            name: 'app',
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const updated = new GraphologyAdapter(new DirectedGraph()).withTgGraph(tg);
+
+    expect(updated.toTgGraph()).toStrictEqual(tg);
+  });
+
   it('shoud allow parallel edges when using the default graph implementation', () => {
     const sourceId = asNodeId('parallel-source');
     const targetId = asNodeId('parallel-target');

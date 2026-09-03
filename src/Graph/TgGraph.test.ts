@@ -1,8 +1,10 @@
+import { TERRA_GRAPH_CORE_VERSION } from '../version.js';
 import {
   DefaultEdgeSemanticRoles,
   DefaultProjectionLayers,
   EdgeId,
   NodeId,
+  TG_ID_VERSION,
   TG_SCHEMA_VERSION,
   TgGraph,
   asEdgeId,
@@ -21,21 +23,21 @@ const customSemantic = (semantic: string) => ({
 describe('TgGraph.edgeIdFrom', () => {
   it('should create expected id without suffix', () => {
     expect(edgeIdFrom(asNodeId('from'), asNodeId('to'))).toStrictEqual(
-      `tg:${TG_SCHEMA_VERSION}:edge:from->to`,
+      `tg:${TG_ID_VERSION}:edge:from->to`,
     );
   });
 
   it('should create expected id with suffix', () => {
     expect(
       edgeIdFrom(asNodeId('from'), asNodeId('to'), 'suffix'),
-    ).toStrictEqual(`tg:${TG_SCHEMA_VERSION}:edge:from->to:suffix`);
+    ).toStrictEqual(`tg:${TG_ID_VERSION}:edge:from->to:suffix`);
   });
 });
 
 describe('TgGraph.tgNodeIdFrom', () => {
   it('should create expected namespaced id', () => {
     expect(tgNodeIdFrom('resource', 'aws_s3_bucket.example')).toStrictEqual(
-      `tg:${TG_SCHEMA_VERSION}:resource:aws_s3_bucket.example`,
+      `tg:${TG_ID_VERSION}:resource:aws_s3_bucket.example`,
     );
   });
 });
@@ -44,17 +46,17 @@ describe('TgGraph.tgProjectionNodeIdFrom', () => {
   it('should create expected projection id', () => {
     expect(
       tgProjectionNodeIdFrom(DefaultProjectionLayers.Core, 'api.public'),
-    ).toStrictEqual(`tg:${TG_SCHEMA_VERSION}:projection:core:api.public`);
+    ).toStrictEqual(`tg:${TG_ID_VERSION}:projection:core:api.public`);
   });
 });
 
 describe('TgGraph.parseTgNodeId', () => {
   it('should parse namespaced ids', () => {
     expect(
-      parseTgNodeId(`tg:${TG_SCHEMA_VERSION}:resource:aws_s3_bucket.example`),
+      parseTgNodeId(`tg:${TG_ID_VERSION}:resource:aws_s3_bucket.example`),
     ).toStrictEqual({
       namespace: 'tg',
-      version: TG_SCHEMA_VERSION,
+      version: TG_ID_VERSION,
       kind: 'resource',
       address: 'aws_s3_bucket.example',
     });
@@ -62,10 +64,10 @@ describe('TgGraph.parseTgNodeId', () => {
 
   it('should parse projection ids', () => {
     expect(
-      parseTgNodeId(`tg:${TG_SCHEMA_VERSION}:projection:core:api.public`),
+      parseTgNodeId(`tg:${TG_ID_VERSION}:projection:core:api.public`),
     ).toStrictEqual({
       namespace: 'tg',
-      version: TG_SCHEMA_VERSION,
+      version: TG_ID_VERSION,
       kind: 'projection',
       address: 'core:api.public',
     });
@@ -73,7 +75,7 @@ describe('TgGraph.parseTgNodeId', () => {
 
   it('should return undefined for invalid namespaces or missing addresses', () => {
     expect(parseTgNodeId('not-tg:1.0.0:resource:one')).toBeUndefined();
-    expect(parseTgNodeId(`tg:${TG_SCHEMA_VERSION}:resource`)).toBeUndefined();
+    expect(parseTgNodeId(`tg:${TG_ID_VERSION}:resource`)).toBeUndefined();
   });
 });
 
@@ -119,5 +121,11 @@ describe('TgGraph.TgEdgeAttributes', () => {
     expect(graph.edges[0].attributes?.hints?.semantic?.semantic).toBe(
       'custom.semantic',
     );
+  });
+});
+
+describe('TERRA_GRAPH_CORE_VERSION', () => {
+  it('should expose the core package version', () => {
+    expect(TERRA_GRAPH_CORE_VERSION).toBe('1.0.0-rc.30');
   });
 });

@@ -20,6 +20,7 @@ import {
   isNamedRuleSetRef,
 } from './Rules/RulePlan.js';
 import { SupportedAdapterOperationsRegistry } from './Serialization/Registry.js';
+import type { TgGraphMetadata } from './TgGraph.js';
 
 export type ProfileRenderConfig<TOptions = Record<string, unknown>> = {
   renderer?: string;
@@ -30,6 +31,7 @@ export type SerializedProfile<TOptions = Record<string, unknown>> = {
   name: string;
   supports?: string;
   render?: ProfileRenderConfig<TOptions>;
+  metadata?: TgGraphMetadata;
   phases?: SerializedPhasePlan;
   plugins?: SerializedGraphPluginRef[];
   usesProfiles?: SerializedProfile<TOptions>[];
@@ -38,6 +40,7 @@ export type SerializedProfile<TOptions = Record<string, unknown>> = {
 export type ProfileOptions<TOptions = Record<string, unknown>> = {
   supports?: AdapterOperationsConstructor;
   render?: ProfileRenderConfig<TOptions>;
+  metadata?: TgGraphMetadata;
   phases?: PhasePlan;
   plugins?: GraphPluginRef[];
   usesProfiles?: Profile<TOptions>[];
@@ -56,6 +59,7 @@ type ProfileOccurrence<TOptions = Record<string, unknown>> = {
 export class Profile<TOptions = Record<string, unknown>> {
   public readonly supports?: AdapterOperationsConstructor;
   private readonly render?: ProfileRenderConfig<TOptions>;
+  private readonly metadata?: TgGraphMetadata;
   private readonly phases: PhasePlan;
   private readonly plugins: GraphPluginRef[];
   private readonly usesProfiles: Profile<TOptions>[];
@@ -66,6 +70,7 @@ export class Profile<TOptions = Record<string, unknown>> {
   ) {
     this.supports = options.supports;
     this.render = options.render;
+    this.metadata = options.metadata;
     this.phases = options.phases ?? [];
     this.plugins = options.plugins ?? [];
     this.usesProfiles = options.usesProfiles ?? [];
@@ -75,6 +80,7 @@ export class Profile<TOptions = Record<string, unknown>> {
     return new Profile(this.name, {
       supports: this.supports,
       render: this.render,
+      metadata: this.metadata,
       phases: this.phases,
       plugins: this.plugins,
       usesProfiles: [...this.usesProfiles, profile],
@@ -85,6 +91,7 @@ export class Profile<TOptions = Record<string, unknown>> {
     return new Profile(this.name, {
       supports: this.supports,
       render: this.render,
+      metadata: this.metadata,
       phases: [...this.phases, ...phases],
       plugins: this.plugins,
       usesProfiles: this.usesProfiles,
@@ -101,6 +108,7 @@ export class Profile<TOptions = Record<string, unknown>> {
     return new Profile(this.name, {
       supports: this.supports,
       render: this.render,
+      metadata: this.metadata,
       phases: this.phases,
       plugins: [...this.plugins, pluginRef],
       usesProfiles: this.usesProfiles,
@@ -130,6 +138,7 @@ export class Profile<TOptions = Record<string, unknown>> {
       name: this.name,
       supports: this.supports?.name,
       render: this.render,
+      metadata: this.metadata,
       phases: this.serializePhases(this.phases),
       plugins: this.plugins.length > 0 ? [...this.plugins] : undefined,
       usesProfiles: this.usesProfiles.map((profile) => profile.serialize()),
@@ -152,6 +161,7 @@ export class Profile<TOptions = Record<string, unknown>> {
     return new Profile(json.name, {
       supports,
       render: json.render,
+      metadata: json.metadata,
       phases: Profile.deserializePhases(json.phases ?? []),
       plugins: [...(json.plugins ?? [])],
       usesProfiles: (json.usesProfiles ?? []).map((profile) =>
@@ -177,6 +187,83 @@ export class Profile<TOptions = Record<string, unknown>> {
       undefined,
     );
     return this.render?.renderer ?? inherited;
+  }
+
+  public resolveMetadata(): TgGraphMetadata | undefined {
+    const inherited = this.usesProfiles.reduce<TgGraphMetadata | undefined>(
+      (acc, profile) => Profile.mergeMetadata(acc, profile.resolveMetadata()),
+      undefined,
+    );
+    return Profile.mergeMetadata(inherited, this.metadata);
+  }
+
+  private static mergeMetadata(
+    base?: TgGraphMetadata,
+    override?: TgGraphMetadata,
+  ): TgGraphMetadata | undefined {
+    if (!base) {
+      return override;
+    }
+    if (!override) {
+      return base;
+    }
+
+    const merged: TgGraphMetadata = {};
+    Profile.setOptionalRecord(
+      merged,
+      'version',
+      Profile.mergeOptionalRecord(base.version, override.version),
+    );
+    Profile.setOptionalRecord(
+      merged,
+      'environment',
+      Profile.mergeOptionalRecord(base.environment, override.environment),
+    );
+    Profile.setOptionalRecord(
+      merged,
+      'terraform',
+      Profile.mergeOptionalRecord(base.terraform, override.terraform),
+    );
+    Profile.setOptionalRecord(
+      merged,
+      'source',
+      Profile.mergeOptionalRecord(base.source, override.source),
+    );
+    Profile.setOptionalRecord(
+      merged,
+      'labels',
+      Profile.mergeOptionalRecord(base.labels, override.labels),
+    );
+    Profile.setOptionalRecord(
+      merged,
+      'tool',
+      Profile.mergeOptionalRecord(base.tool, override.tool),
+    );
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
+  private static mergeOptionalRecord<T extends object>(
+    base?: T,
+    override?: T,
+  ): T | undefined {
+    if (!base && !override) {
+      return undefined;
+    }
+    return {
+      ...(base ?? {}),
+      ...(override ?? {}),
+    } as T;
+  }
+
+  private static setOptionalRecord<TKey extends keyof TgGraphMetadata>(
+    metadata: TgGraphMetadata,
+    key: TKey,
+    value: TgGraphMetadata[TKey],
+  ): void {
+    if (!value || Object.keys(value).length === 0) {
+      return;
+    }
+    metadata[key] = value;
   }
 
   private assertCompatibleSupportedAdapterOperations(

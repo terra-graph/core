@@ -5,6 +5,7 @@ import { NamedRuleSetRegistry } from '../Graph/Rules/NamedRuleSetRegistry.js';
 import { SerializedRule } from '../Graph/Rules/RuleConfig.js';
 import { SerializedRuleSet } from '../Graph/Rules/RuleSet.js';
 import { SupportedAdapterOperationsRegistry } from '../Graph/Serialization/Registry.js';
+import type { TgGraphMetadata } from '../Graph/TgGraph.js';
 import { RuntimeCatalog, RuntimeCatalogProvider } from './RuntimeCatalog.js';
 
 export type SerializedRuntimeProfile<
@@ -22,6 +23,7 @@ export type SerializedRuntimeConfig<
   profiles?: Record<string, SerializedRuntimeProfile<TOptions>>;
   run?: {
     profile: string;
+    metadata?: TgGraphMetadata;
     outputs?: Array<{
       renderer?: string;
       options?: TOptions;
@@ -126,6 +128,7 @@ export class RuntimeCatalogLoader<
           name,
           supports: profile.supports,
           render: profile.render,
+          metadata: profile.metadata,
           phases: profile.phases,
           plugins: profile.plugins,
         },

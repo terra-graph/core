@@ -2,6 +2,7 @@ export type NodeId = string & { readonly __brand: 'NodeId' };
 export type EdgeId = string & { readonly __brand: 'EdgeId' };
 
 export const TG_ID_NAMESPACE = 'tg';
+export const TG_ID_VERSION = '1.0.0';
 export const TG_SCHEMA_VERSION = '1.0.0';
 
 export type TgTerraformNodeKind =
@@ -294,6 +295,57 @@ export type TgGraphHints = {
   topology?: TgGraphTopologyHints;
 };
 
+export type TgGraphVersionMetadata = {
+  id?: string;
+  parentId?: string;
+};
+
+export type TgGraphEnvironmentMetadata = {
+  name?: string;
+};
+
+export type TgGraphTerraformMetadata = {
+  workspace?: string;
+};
+
+export type TgGraphSourceMetadata = {
+  ref?: string;
+  commit?: string;
+  repository?: string;
+};
+
+export type TgGraphToolMetadata = {
+  terraGraphCliVersion?: string;
+  terraGraphCoreVersion?: string;
+};
+
+export type TgGraphMetadata = {
+  version?: TgGraphVersionMetadata;
+  environment?: TgGraphEnvironmentMetadata;
+  terraform?: TgGraphTerraformMetadata;
+  source?: TgGraphSourceMetadata;
+  labels?: Record<string, string>;
+  tool?: TgGraphToolMetadata;
+};
+
+export type TgTerraformResourceChange = {
+  address: string;
+  nodeId?: NodeId;
+  matched: boolean;
+  previousAddress?: string;
+  actions: string[];
+  actionReason?: string;
+  replacePaths?: unknown[];
+  beforeSensitive?: unknown;
+  afterSensitive?: unknown;
+  afterUnknown?: unknown;
+};
+
+export type TgTerraformChanges = {
+  source: 'terraform_plan';
+  resources: Record<string, TgTerraformResourceChange>;
+};
+
 export type TgNodeLayoutHints = {
   image?: string;
   text1?: string;
@@ -335,13 +387,15 @@ export type TgGraph = {
   edges: TgEdge[];
   description: Record<string, string>;
   hints?: TgGraphHints;
+  metadata?: TgGraphMetadata;
+  changes?: TgTerraformChanges;
 };
 
 export const edgeIdFrom = (
   from: NodeId,
   to: NodeId,
   suffix?: string,
-  version = TG_SCHEMA_VERSION,
+  version = TG_ID_VERSION,
 ): EdgeId => {
   const base = `${TG_ID_NAMESPACE}:${version}:edge:${from}->${to}`;
   return (suffix ? `${base}:${suffix}` : base) as EdgeId;
@@ -350,13 +404,13 @@ export const edgeIdFrom = (
 export const tgNodeIdFrom = (
   kind: TgNodeKind,
   address: string,
-  version = TG_SCHEMA_VERSION,
+  version = TG_ID_VERSION,
 ): NodeId => `${TG_ID_NAMESPACE}:${version}:${kind}:${address}` as NodeId;
 
 export const tgProjectionNodeIdFrom = (
   layer: TgProjectionLayer,
   address: string,
-  version = TG_SCHEMA_VERSION,
+  version = TG_ID_VERSION,
 ): NodeId =>
   `${TG_ID_NAMESPACE}:${version}:projection:${layer}:${address}` as NodeId;
 

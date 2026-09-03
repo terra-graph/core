@@ -40,6 +40,46 @@ const renderSchema = z
   })
   .strict();
 
+const metadataSchema = z
+  .object({
+    version: z
+      .object({
+        id: z.string().min(1).optional(),
+        parentId: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    environment: z
+      .object({
+        name: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    terraform: z
+      .object({
+        workspace: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    source: z
+      .object({
+        ref: z.string().min(1).optional(),
+        commit: z.string().min(1).optional(),
+        repository: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    labels: z.record(z.string(), z.string()).optional(),
+    tool: z
+      .object({
+        terraGraphCliVersion: z.string().min(1).optional(),
+        terraGraphCoreVersion: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 const runOutputSchema = z
   .object({
     renderer: z.string().min(1).optional(),
@@ -77,6 +117,7 @@ const serializedRuntimeProfileSchema = z
   .object({
     supports: z.string().min(1).optional(),
     render: renderSchema.optional(),
+    metadata: metadataSchema.optional(),
     phases: phasePlanSchema.optional(),
     plugins: z.array(pluginRefSchema).optional(),
     usesProfiles: z.array(z.string().min(1)).optional(),
@@ -99,6 +140,7 @@ const serializedRuntimeConfigSchema = z
     run: z
       .object({
         profile: z.string().min(1),
+        metadata: metadataSchema.optional(),
         outputs: z.array(runOutputSchema).optional(),
       })
       .strict()
