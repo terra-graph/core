@@ -297,7 +297,6 @@ export type TgGraphHints = {
 
 export type TgGraphVersionMetadata = {
   id?: string;
-  parentId?: string;
 };
 
 export type TgGraphEnvironmentMetadata = {

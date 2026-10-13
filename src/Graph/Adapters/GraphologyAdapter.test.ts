@@ -446,7 +446,6 @@ describe('GraphologyAdapter.withTgGraph', () => {
       metadata: {
         version: {
           id: 'run-2',
-          parentId: 'run-1',
         },
         environment: {
           name: 'prod',

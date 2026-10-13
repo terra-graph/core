@@ -45,7 +45,6 @@ const metadataSchema = z
     version: z
       .object({
         id: z.string().min(1).optional(),
-        parentId: z.string().min(1).optional(),
       })
       .strict()
       .optional(),

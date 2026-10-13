@@ -2,6 +2,18 @@ import { RemoveNode } from '../../Graph/Rules/Node/RemoveNode.js';
 import { ZodRuntimeConfigValidator } from './ZodRuntimeConfigValidator.js';
 
 describe('ZodRuntimeConfigValidator.validate', () => {
+  it('shoud reject removed version parent metadata', () => {
+    const validator = new ZodRuntimeConfigValidator();
+    expect(() =>
+      validator.validate({
+        run: {
+          profile: 'base',
+          metadata: { version: { parentId: 'old-version' } },
+        },
+      }),
+    ).toThrow();
+  });
+
   it('shoud validate and return serialized runtime config', () => {
     const validator = new ZodRuntimeConfigValidator();
 
@@ -134,7 +146,6 @@ describe('ZodRuntimeConfigValidator.validate', () => {
         metadata: {
           version: {
             id: 'run-2',
-            parentId: 'run-1',
           },
           terraform: {
             workspace: 'default',

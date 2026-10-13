@@ -527,9 +527,6 @@ describe('Profile.resolveMetadata', () => {
   it('shoud merge inherited metadata and prefer own metadata values', () => {
     const child = new Profile('child', {
       metadata: {
-        version: {
-          parentId: 'child-parent',
-        },
         environment: {
           name: 'child-env',
         },
@@ -562,7 +559,6 @@ describe('Profile.resolveMetadata', () => {
     expect(parent.resolveMetadata()).toEqual({
       version: {
         id: 'parent-version',
-        parentId: 'child-parent',
       },
       environment: {
         name: 'parent-env',
