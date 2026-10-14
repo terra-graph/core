@@ -1,3 +1,4 @@
+import type { ProfileExecutionDescriptor } from '../Runtime/ProfileExecutionDescriptor.js';
 import { Adapter } from './Adapter.js';
 
 export type RenderArtifact = {
@@ -7,5 +8,8 @@ export type RenderArtifact = {
 };
 
 export interface Renderer<TAdapter extends Adapter> {
-  render(adapter: TAdapter): RenderArtifact;
+  render(
+    adapter: TAdapter,
+    execution?: ProfileExecutionDescriptor,
+  ): RenderArtifact;
 }

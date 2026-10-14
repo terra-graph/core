@@ -21,6 +21,24 @@ const asPrivate = (
   loader as unknown as ModuleRuntimeProviderLoaderPrivate;
 
 describe('ModuleRuntimeProviderLoader.load', () => {
+  it('shoud reject a provider with no resolvable package version', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-unversioned-'));
+    await mkdir(join(dir, 'nested'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ name: 'unversioned' }),
+    );
+    const providerPath = join(dir, 'nested/provider.cjs');
+    await writeFile(providerPath, 'module.exports = {}');
+    try {
+      await expect(
+        new ModuleRuntimeProviderLoader().load({ specifier: providerPath }),
+      ).rejects.toThrow('no package name/version');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('shoud treat renderer and writer registries as provider shape', () => {
     const loader = new ModuleRuntimeProviderLoader();
 
@@ -38,6 +56,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud load a provider from a module default object export', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
 
     await writeFile(
@@ -50,6 +75,10 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       const loader = new ModuleRuntimeProviderLoader();
       const provider = await loader.load({ specifier: providerPath });
 
+      expect(provider.dependency).toEqual({
+        name: 'test-provider',
+        version: '1.0.0',
+      });
       expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
       expect(
         provider.supportedAdapterOperationsRegistry
@@ -63,6 +92,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud load a provider from a runtimeProvider named export', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
 
     await writeFile(
@@ -96,6 +132,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud load a provider from a default function export', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
 
     await writeFile(
@@ -121,6 +164,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud load a provider from a file URL specifier', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
 
     await writeFile(
@@ -148,6 +198,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud resolve relative provider specifiers from cwd when no reference is provided', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
     const originalCwd = process.cwd();
 
@@ -177,6 +234,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
   it('shoud resolve relative provider specifiers from sourceReference', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
     const configPath = join(dir, 'runtime.yaml');
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
 
     await writeFile(
@@ -213,6 +277,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       join(packageDir, 'package.json'),
       JSON.stringify({
         name: 'package-provider',
+        version: '1.0.0',
         exports: {
           import: './index.cjs',
           require: './index.cjs',
@@ -256,6 +321,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       join(packageDir, 'package.json'),
       JSON.stringify({
         name: 'cwd-provider',
+        version: '1.0.0',
         exports: {
           import: './index.cjs',
           require: './index.cjs',
@@ -297,6 +363,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       join(packageDir, 'package.json'),
       JSON.stringify({
         name: 'esm-only',
+        version: '1.0.0',
         type: 'module',
         exports: {
           '.': {
@@ -338,6 +405,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       join(packageDir, 'package.json'),
       JSON.stringify({
         name: 'file-url-provider',
+        version: '1.0.0',
         exports: {
           import: './index.cjs',
           require: './index.cjs',
@@ -450,6 +518,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       join(packageDir, 'package.json'),
       JSON.stringify({
         name: 'esm-entry-provider',
+        version: '1.0.0',
         exports: {
           '.': {
             import: './esm/index.mjs',
@@ -482,6 +551,7 @@ describe('ModuleRuntimeProviderLoader.load', () => {
       join(packageDir, 'package.json'),
       JSON.stringify({
         name: 'missing-esm-entry-provider',
+        version: '1.0.0',
         exports: {
           '.': {
             import: './esm/index.mjs',
@@ -521,6 +591,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud throw when module does not export a runtime provider', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
 
     await writeFile(providerPath, 'module.exports = 1;', 'utf8');
@@ -538,6 +615,13 @@ describe('ModuleRuntimeProviderLoader.load', () => {
 
   it('shoud throw when a provider factory resolves to an invalid value', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
     const providerPath = join(dir, 'provider.cjs');
 
     await writeFile(

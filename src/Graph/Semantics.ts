@@ -22,6 +22,22 @@ export type SerializedSemanticDecoratorRef = {
   config?: unknown;
 };
 
+const decoratorDescriptors = new WeakMap<
+  SemanticDecorator,
+  SerializedSemanticDecoratorRef
+>();
+
+export const serializeSemanticDecorator = (
+  decorator: SemanticDecorator,
+): SerializedSemanticDecoratorRef => {
+  const descriptor = decoratorDescriptors.get(decorator);
+  if (!descriptor)
+    throw new Error(
+      `Semantic decorator '${decorator.name}' has no serializable configuration reference.`,
+    );
+  return descriptor;
+};
+
 type SemanticDecoratorFactory = (config?: unknown) => SemanticDecorator;
 
 export const isSemanticDecorator = (
@@ -61,7 +77,12 @@ const resolveSemanticDecorator = (
     throw new Error(`SemanticDecorator '${definition.id}' is not registered`);
   }
 
-  return factory(definition.config);
+  const decorator = factory(definition.config);
+  decoratorDescriptors.set(decorator, {
+    id: definition.id,
+    config: definition.config,
+  });
+  return decorator;
 };
 
 export const SemanticDecoratorRegistry = {

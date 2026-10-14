@@ -61,6 +61,18 @@ describe('FileRuntimeConfigSource.read', () => {
 });
 
 describe('RuntimeConfigLoader.load', () => {
+  it('shoud expose resolved provider versions to output consumers', async () => {
+    const loader = new RuntimeConfigLoader({
+      baseProviders: [{ dependency: { name: 'provider', version: '2.0.0' } }],
+    });
+    const result = await loader.load({
+      source: new InMemoryRuntimeConfigSource('{"profiles":{}}', 'json'),
+    });
+    expect(result.dependencies).toEqual([
+      { name: 'provider', version: '2.0.0' },
+    ]);
+  });
+
   it('shoud load a runtime catalog from in-memory json config', async () => {
     const source = new InMemoryRuntimeConfigSource(
       JSON.stringify({

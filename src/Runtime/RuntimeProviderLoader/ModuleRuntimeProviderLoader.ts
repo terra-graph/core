@@ -30,7 +30,35 @@ export class ModuleRuntimeProviderLoader implements RuntimeProviderLoader {
       input.sourceReference,
     );
     const loaded = await import(resolvedSpecifier);
-    return this.toProvider(loaded as RuntimeProviderModuleShape);
+    const provider = await this.toProvider(
+      loaded as RuntimeProviderModuleShape,
+    );
+    if (!resolvedSpecifier.startsWith('file:'))
+      return {
+        ...provider,
+        dependency: { name: resolvedSpecifier, version: process.versions.node },
+      };
+    let directory = dirname(fileURLToPath(resolvedSpecifier));
+    while (true) {
+      const manifest = join(directory, 'package.json');
+      if (existsSync(manifest)) {
+        const pkg = JSON.parse(readFileSync(manifest, 'utf8')) as {
+          name?: string;
+          version?: string;
+        };
+        if (pkg.name && pkg.version)
+          return {
+            ...provider,
+            dependency: { name: pkg.name, version: pkg.version },
+          };
+      }
+      const parent = dirname(directory);
+      if (parent === directory)
+        throw new Error(
+          `Runtime provider '${input.specifier}' has no package name/version.`,
+        );
+      directory = parent;
+    }
   }
 
   private isRuntimeProvider(value: unknown): value is RuntimeProvider {

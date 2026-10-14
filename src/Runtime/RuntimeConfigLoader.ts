@@ -25,6 +25,7 @@ export type RuntimeConfigLoadResult<
 > = {
   catalog: RuntimeCatalog;
   config: SerializedRuntimeConfig<TOptions>;
+  dependencies: { name: string; version: string }[];
 };
 
 export type RuntimeConfigLoaderDependencies<
@@ -107,7 +108,13 @@ export class RuntimeConfigLoader<
       supportedAdapterOperationsRegistry,
     });
 
-    return { catalog, config };
+    return {
+      catalog,
+      config,
+      dependencies: providers.flatMap((provider) =>
+        provider.dependency ? [provider.dependency] : [],
+      ),
+    };
   }
 
   private async loadProviders(

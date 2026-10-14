@@ -2,5 +2,6 @@ import { SupportedAdapterOperationsRegistry } from '../Graph/Serialization/Regis
 import { RuntimeCatalogProvider } from './RuntimeCatalog.js';
 
 export type RuntimeProvider = RuntimeCatalogProvider & {
+  dependency?: { name: string; version: string };
   supportedAdapterOperationsRegistry?: SupportedAdapterOperationsRegistry;
 };
