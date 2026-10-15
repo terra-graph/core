@@ -1,4 +1,5 @@
 import type { Profile } from '../../Graph/Profile.js';
+import { isRuleOptionsProvider } from '../../Graph/RuleOptionsProvider.js';
 import type { BaseRule } from '../../Graph/Rules/Rule.js';
 import {
   isSemanticDecorator,
@@ -29,6 +30,15 @@ export class ProfileExecutionDescriptorBuilder {
       ['string', 'boolean', 'number'].includes(typeof value)
     )
       return value;
+    if (isRuleOptionsProvider(value)) {
+      const options = value.getRuleOptions();
+      if (options instanceof Promise) {
+        throw new Error(
+          'Profile execution requires synchronously available resolved rule options.',
+        );
+      }
+      return this.serialize(options);
+    }
     if (isSemanticDecorator(value))
       return this.serialize(serializeSemanticDecorator(value));
     if (Array.isArray(value)) return value.map((item) => this.serialize(item));

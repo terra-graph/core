@@ -34,6 +34,55 @@ describe('ProfileExecutionDescriptorBuilder.build', () => {
     });
     expect(result.dependencies).toEqual([{ name: 'provider', version: '1' }]);
   });
+  it('shoud capture resolved options from providers and derivation wrappers', () => {
+    const options = { projections: [{ name: 'generated' }] };
+    const provider = { getRuleOptions: () => options };
+    const result = new ProfileExecutionDescriptorBuilder().build(
+      new Profile('test', {}),
+      [
+        [
+          new RemoveNode({
+            node: { any: true },
+            options: {
+              provider,
+              derivation: {
+                getRuleOptions: () => ({
+                  ...provider.getRuleOptions(),
+                  instanceStrategy: 'none',
+                }),
+              },
+            },
+          }),
+        ],
+      ],
+      [],
+    );
+    expect(result.phases[0][0].config.options).toEqual({
+      provider: options,
+      derivation: { ...options, instanceStrategy: 'none' },
+    });
+    expect(JSON.parse(JSON.stringify(result))).toEqual(result);
+  });
+
+  it('shoud reject asynchronous provider options during descriptor construction', () => {
+    expect(() =>
+      new ProfileExecutionDescriptorBuilder().build(
+        new Profile('test', {}),
+        [
+          [
+            new RemoveNode({
+              node: { any: true },
+              options: {
+                getRuleOptions: () => Promise.resolve({}),
+              },
+            }),
+          ],
+        ],
+        [],
+      ),
+    ).toThrow('synchronously available resolved rule options');
+  });
+
   it('shoud reject unsupported functions and decorators without configuration references', () => {
     const builder = new ProfileExecutionDescriptorBuilder();
     const profile = new Profile('test', {});
