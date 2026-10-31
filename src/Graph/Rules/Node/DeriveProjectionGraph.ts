@@ -1,4 +1,5 @@
 import { isObjectRecord } from '../../../ObjectUtilities.js';
+import { Queue } from '../../../Queue.js';
 import { NodeQuery } from '../../Operations/Matchers/NodeQuery/NodeQuery.js';
 import { AdapterOperations } from '../../Operations/Operations.js';
 import {
@@ -881,9 +882,8 @@ export class DeriveProjectionGraph extends NodeRule {
       return members;
     }
 
-    const queue: Array<{ nodeId: NodeId; depth: number }> = [
-      { nodeId: rootNodeId, depth: 0 },
-    ];
+    const queue = new Queue<{ nodeId: NodeId; depth: number }>();
+    queue.push({ nodeId: rootNodeId, depth: 0 });
     const visited = new Set<NodeId>([rootNodeId]);
 
     while (queue.length > 0) {
@@ -982,6 +982,8 @@ export class DeriveProjectionGraph extends NodeRule {
       RelationshipEvidence & { minEvidence: number }
     >();
 
+    // The graph remains unchanged while adjacency evidence is collected.
+    const neighborsByNode = new Map<NodeId, NodeId[]>();
     for (const [
       sourceProjectionId,
       sourceRootNodeId,
@@ -991,13 +993,12 @@ export class DeriveProjectionGraph extends NodeRule {
         continue;
       }
 
-      const queue: QueueItem[] = [
-        {
-          current: sourceRootNodeId,
-          depth: 0,
-          path: [sourceRootNodeId],
-        },
-      ];
+      const queue = new Queue<QueueItem>();
+      queue.push({
+        current: sourceRootNodeId,
+        depth: 0,
+        path: [sourceRootNodeId],
+      });
 
       while (queue.length > 0) {
         const current = queue.shift() as QueueItem;
@@ -1005,7 +1006,12 @@ export class DeriveProjectionGraph extends NodeRule {
           continue;
         }
 
-        for (const next of this.neighborIds(current.current, graph)) {
+        let neighbors = neighborsByNode.get(current.current);
+        if (!neighbors) {
+          neighbors = this.neighborIds(current.current, graph);
+          neighborsByNode.set(current.current, neighbors);
+        }
+        for (const next of neighbors) {
           if (current.path.includes(next)) {
             continue;
           }
