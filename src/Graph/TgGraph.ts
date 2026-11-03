@@ -225,6 +225,7 @@ export type TgNodeTerraformStateInstance = TgNodeTerraformStateBase & {
 export type TgNodeTerraformState = {
   source: 'state_show' | 'plan_show';
   effective: TgNodeTerraformStateInstance | null;
+  // An explicitly empty plan state confirms no instances; missing state is unknown.
   instances: TgNodeTerraformStateInstance[];
 };
 

@@ -261,6 +261,176 @@ describe('TfStateDecorator.decorate', () => {
 });
 
 describe('TfPlanDecorator.decorate', () => {
+  const emptyPackagePlan = (): TerraformPlanShowJson => ({
+    complete: true,
+    planned_values: { root_module: {} },
+    configuration: {
+      root_module: {
+        module_calls: {
+          package: {
+            module: { resources: [{ address: 'aws_lambda_function.this' }] },
+          },
+        },
+      },
+    },
+  });
+  const packageAddress = 'module.package.aws_lambda_function.this';
+  const packageNodeId = toResourceNodeId(packageAddress);
+
+  it('shoud annotate declared resources with confirmed zero instances without mutating the graph', () => {
+    const graph = buildGraph([
+      packageAddress,
+      'aws_s3_bucket.not_in_configuration',
+    ]);
+    const result = new TfPlanDecorator().decorate(graph, emptyPackagePlan());
+
+    expect(result.nodes[packageNodeId].terraform?.state).toEqual({
+      source: 'plan_show',
+      effective: null,
+      instances: [],
+    });
+    expect(graph.nodes[packageNodeId].terraform?.state).toBeUndefined();
+    expect(
+      result.nodes[toResourceNodeId('aws_s3_bucket.not_in_configuration')]
+        .terraform?.state,
+    ).toBeUndefined();
+    expect(result.edges).toEqual(graph.edges);
+  });
+
+  it.each([
+    { complete: undefined },
+    { complete: false },
+    { errored: true },
+    { deferred_changes: [{ reason: 'instance_count_unknown' }] },
+  ])(
+    'shoud preserve unknown instance presence for non-authoritative plans %j',
+    (overrides) => {
+      const result = new TfPlanDecorator().decorate(
+        buildGraph([packageAddress]),
+        {
+          ...emptyPackagePlan(),
+          ...overrides,
+        },
+      );
+
+      expect(result.nodes[packageNodeId].terraform?.state).toBeUndefined();
+    },
+  );
+
+  it.each([
+    { resource_changes: [{ address: `${packageAddress}[0]` }] },
+    {
+      resource_changes: [
+        {
+          address: 'aws_lambda_function.renamed',
+          previous_address: `${packageAddress}[0]`,
+        },
+      ],
+    },
+    {
+      prior_state: {
+        values: {
+          root_module: {
+            child_modules: [
+              { resources: [{ address: `${packageAddress}[0]` }] },
+            ],
+          },
+        },
+      },
+    },
+  ])('shoud preserve prior and changed resource families %j', (evidence) => {
+    const result = new TfPlanDecorator().decorate(
+      buildGraph([packageAddress]),
+      {
+        ...emptyPackagePlan(),
+        ...evidence,
+      },
+    );
+
+    expect(result.nodes[packageNodeId].terraform?.state).toBeUndefined();
+  });
+
+  it('shoud preserve existing state and planned instances within indexed modules', () => {
+    const graph = buildGraph([packageAddress]);
+    const instance = { address: `${packageAddress}[0]`, values: {} };
+    graph.nodes[packageNodeId].terraform = {
+      ...graph.nodes[packageNodeId].terraform,
+      state: { source: 'state_show', effective: instance, instances: [] },
+    };
+    expect(
+      new TfPlanDecorator().decorate(graph, emptyPackagePlan()).nodes[
+        packageNodeId
+      ].terraform?.state,
+    ).toEqual(graph.nodes[packageNodeId].terraform?.state);
+
+    const plan = emptyPackagePlan();
+    plan.planned_values.root_module.child_modules = [
+      {
+        resources: [
+          {
+            address: 'module.package["blue"].aws_lambda_function.this[0]',
+            values: {},
+          },
+        ],
+      },
+    ];
+    const result = new TfPlanDecorator().decorate(
+      buildGraph([packageAddress]),
+      plan,
+    );
+
+    expect(
+      result.nodes[packageNodeId].terraform?.state?.instances,
+    ).toHaveLength(1);
+  });
+
+  it('shoud preserve existing instance lists when an absent plan node has no effective state', () => {
+    const graph = buildGraph([packageAddress]);
+    graph.nodes[packageNodeId].terraform = {
+      ...graph.nodes[packageNodeId].terraform,
+      state: {
+        source: 'state_show',
+        effective: null,
+        instances: [{ address: `${packageAddress}[0]`, values: {} }],
+      },
+    };
+
+    expect(
+      new TfPlanDecorator().decorate(graph, emptyPackagePlan()).nodes[
+        packageNodeId
+      ].terraform?.state?.source,
+    ).toBe('state_show');
+  });
+
+  it('shoud annotate only addressable resource nodes', () => {
+    const graph = buildGraph([packageAddress]);
+    const dataId = asNodeId('data');
+    const orphanId = asNodeId('orphan');
+    const noAddressId = asNodeId('no-address');
+    graph.nodes[dataId] = {
+      id: dataId,
+      terraform: { kind: 'data', address: 'data.aws_caller_identity.current' },
+    };
+    graph.nodes[orphanId] = { id: orphanId };
+    graph.nodes[noAddressId] = {
+      id: noAddressId,
+      terraform: { kind: 'resource' },
+    };
+    const plan = {
+      ...emptyPackagePlan(),
+      errored: false,
+      deferred_changes: [],
+      prior_state: { values: {} },
+      resource_changes: [],
+    };
+    const result = new TfPlanDecorator().decorate(graph, plan);
+
+    for (const id of [dataId, orphanId, noAddressId]) {
+      expect(result.nodes[id].terraform?.state).toBeUndefined();
+    }
+    expect(result.nodes[packageNodeId].terraform?.state?.instances).toEqual([]);
+  });
+
   it('shoud set terraform.state from terraform show plan planned_values', () => {
     const graph = buildGraph(['aws_instance.app', 'aws_s3_bucket.other']);
 

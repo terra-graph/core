@@ -41,9 +41,25 @@ const TerraformPlanConfigurationModuleSchema: z.ZodType<TerraformPlanConfigurati
   );
 
 const TerraformPlanShowSchema = z.object({
+  complete: z.boolean().optional(),
+  errored: z.boolean().optional(),
+  deferred_changes: z.array(z.unknown()).optional(),
   planned_values: z.object({
     root_module: TerraformShowModuleSchema,
   }),
+  prior_state: z
+    .object({
+      values: z.object({ root_module: TerraformShowModuleSchema.optional() }),
+    })
+    .optional(),
+  resource_changes: z
+    .array(
+      z.object({
+        address: z.string().min(1),
+        previous_address: z.string().min(1).optional(),
+      }),
+    )
+    .optional(),
   configuration: z
     .object({
       root_module: TerraformPlanConfigurationModuleSchema,
@@ -150,9 +166,80 @@ export class TfPlanDecorator extends TfShowDecoratorBase<
 
     return {
       ...graph,
-      nodes: nextNodes,
+      nodes: this.markUninstantiatedResources(
+        nextNodes,
+        collectedResources,
+        parsed,
+      ),
       edges: nextEdges,
     };
+  }
+
+  private markUninstantiatedResources(
+    nodes: TgGraph['nodes'],
+    configuration: CollectedConfigurationResource[],
+    plan: TerraformPlanShowJson,
+  ): TgGraph['nodes'] {
+    // Missing plan evidence must remain distinct from a confirmed empty family.
+    if (
+      plan.complete !== true ||
+      plan.errored === true ||
+      (plan.deferred_changes?.length ?? 0) > 0
+    ) {
+      return nodes;
+    }
+
+    const protectedAddresses = new Set<string>();
+    const collectAddresses = (module: TerraformShowModule): void => {
+      for (const resource of module.resources ?? []) {
+        protectedAddresses.add(normalizeAddress(resource.address));
+      }
+      for (const child of module.child_modules ?? []) {
+        collectAddresses(child);
+      }
+    };
+    collectAddresses(plan.planned_values.root_module);
+    const priorModule = plan.prior_state?.values.root_module;
+    if (priorModule) {
+      collectAddresses(priorModule);
+    }
+    for (const change of plan.resource_changes ?? []) {
+      protectedAddresses.add(normalizeAddress(change.address));
+      if (change.previous_address) {
+        protectedAddresses.add(normalizeAddress(change.previous_address));
+      }
+    }
+
+    const declaredAddresses = new Set(
+      configuration.map((resource) => normalizeAddress(resource.address)),
+    );
+    return Object.fromEntries(
+      Object.entries(nodes).map(([nodeId, node]) => {
+        const terraform = node.terraform;
+        if (terraform?.kind !== 'resource' || !terraform.address) {
+          return [nodeId, node];
+        }
+        const address = normalizeAddress(terraform.address);
+        if (
+          !declaredAddresses.has(address) ||
+          protectedAddresses.has(address) ||
+          (terraform.state?.instances.length ?? 0) > 0 ||
+          terraform.state?.effective
+        ) {
+          return [nodeId, node];
+        }
+        return [
+          nodeId,
+          {
+            ...node,
+            terraform: {
+              ...terraform,
+              state: { source: 'plan_show', effective: null, instances: [] },
+            },
+          },
+        ];
+      }),
+    );
   }
 }
 
