@@ -216,7 +216,11 @@ export class TfPlanDecorator extends TfShowDecoratorBase<
     return Object.fromEntries(
       Object.entries(nodes).map(([nodeId, node]) => {
         const terraform = node.terraform;
-        if (terraform?.kind !== 'resource' || !terraform.address) {
+        if (
+          !terraform ||
+          (terraform.kind !== 'resource' && terraform.kind !== 'data') ||
+          !terraform.address
+        ) {
           return [nodeId, node];
         }
         const address = normalizeAddress(terraform.address);

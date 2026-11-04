@@ -261,6 +261,144 @@ describe('TfStateDecorator.decorate', () => {
 });
 
 describe('TfPlanDecorator.decorate', () => {
+  const address =
+    'module.metric_collector.data.aws_cloudwatch_log_group.lambda';
+  const nodeId = tgNodeIdFrom('data', address);
+  const buildDataGraph = (): TgGraph => ({
+    schemaVersion: TG_SCHEMA_VERSION,
+    description: {},
+    nodes: {
+      [nodeId]: {
+        id: nodeId,
+        terraform: { kind: 'data', address },
+      },
+    },
+    edges: [],
+  });
+  const emptyDataPlan = (): TerraformPlanShowJson => ({
+    complete: true,
+    planned_values: { root_module: {} },
+    configuration: {
+      root_module: {
+        module_calls: {
+          metric_collector: {
+            module: {
+              resources: [{ address: 'data.aws_cloudwatch_log_group.lambda' }],
+            },
+          },
+        },
+      },
+    },
+  });
+
+  it('shoud mark declared data sources with no instance evidence as empty without mutating the graph', () => {
+    const graph = buildDataGraph();
+    const result = new TfPlanDecorator().decorate(graph, emptyDataPlan());
+
+    expect(result.nodes[nodeId].terraform?.state).toEqual({
+      source: 'plan_show',
+      effective: null,
+      instances: [],
+    });
+    expect(graph.nodes[nodeId].terraform?.state).toBeUndefined();
+  });
+
+  it.each<Partial<TerraformPlanShowJson>>([
+    { complete: undefined },
+    { complete: false },
+    { errored: true },
+    { deferred_changes: [{ reason: 'instance_count_unknown' }] },
+    { configuration: undefined },
+    { configuration: { root_module: {} } },
+  ])(
+    'shoud preserve unknown data source presence without authoritative evidence %j',
+    (overrides) => {
+      const result = new TfPlanDecorator().decorate(buildDataGraph(), {
+        ...emptyDataPlan(),
+        ...overrides,
+      });
+
+      expect(result.nodes[nodeId].terraform?.state).toBeUndefined();
+    },
+  );
+
+  it.each([
+    {
+      resource_changes: [
+        {
+          address: `${address}[0]`,
+          mode: 'data',
+          change: { actions: ['read'] },
+        },
+      ],
+    },
+    {
+      resource_changes: [
+        {
+          address: 'data.aws_cloudwatch_log_group.renamed',
+          previous_address: `${address}[0]`,
+        },
+      ],
+    },
+    {
+      prior_state: {
+        values: {
+          root_module: {
+            child_modules: [
+              { resources: [{ address: `${address}[0]`, mode: 'data' }] },
+            ],
+          },
+        },
+      },
+    },
+  ])(
+    'shoud preserve data sources with pending reads or prior instance evidence %j',
+    (evidence) => {
+      const result = new TfPlanDecorator().decorate(buildDataGraph(), {
+        ...emptyDataPlan(),
+        ...evidence,
+      });
+
+      expect(result.nodes[nodeId].terraform?.state).toBeUndefined();
+    },
+  );
+
+  it('shoud preserve planned data instances with unknown values in indexed modules', () => {
+    const plan = emptyDataPlan();
+    const instanceAddress =
+      'module.metric_collector["blue"].data.aws_cloudwatch_log_group.lambda[0]';
+    plan.planned_values.root_module.child_modules = [
+      { resources: [{ address: instanceAddress, mode: 'data' }] },
+    ];
+
+    const result = new TfPlanDecorator().decorate(buildDataGraph(), plan);
+
+    expect(result.nodes[nodeId].terraform?.state?.instances).toEqual([
+      { address: instanceAddress, mode: 'data', values: null },
+    ]);
+  });
+
+  it('shoud preserve existing data instance evidence when absent from the plan', () => {
+    const graph = buildDataGraph();
+    graph.nodes[nodeId].terraform = {
+      kind: 'data',
+      address,
+      state: {
+        source: 'state_show',
+        effective: null,
+        instances: [{ address: `${address}[0]`, values: {} }],
+      },
+    };
+
+    const result = new TfPlanDecorator().decorate(graph, emptyDataPlan());
+
+    expect(result.nodes[nodeId].terraform?.state).toEqual(
+      graph.nodes[nodeId].terraform?.state,
+    );
+  });
+});
+
+describe('TfPlanDecorator.decorate', () => {
   const emptyPackagePlan = (): TerraformPlanShowJson => ({
     complete: true,
     planned_values: { root_module: {} },
