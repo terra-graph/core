@@ -6,7 +6,6 @@ import {
 } from '../../RuleOptionsProvider.js';
 import {
   DefaultProjectionAnchorRoles,
-  DefaultProjectionDerivationSources,
   DefaultProjectionMembershipRelations,
   NodeId,
   TgEdgeAttributes,
@@ -350,21 +349,20 @@ export class MaterializeProjectionInstances extends NodeRule {
       return graph;
     }
 
-    const logicalProjectionIds = graph.nodeIds().filter((currentNodeId) => {
-      const projection = graph.getNodeAttributes(currentNodeId)?.projection;
-      return (
-        projection?.derivation?.source ===
-        DefaultProjectionDerivationSources.Plugin
+    const projectionIds = graph
+      .nodeIds()
+      .filter(
+        (currentNodeId) =>
+          graph.getNodeAttributes(currentNodeId)?.projection !== undefined,
       );
-    });
-    if (logicalProjectionIds.length === 0) {
+    if (projectionIds.length === 0) {
       return graph;
     }
 
     const replacementInstances = new Map<NodeId, ProjectionInstance[]>();
     let updated = graph;
 
-    for (const logicalProjectionId of logicalProjectionIds) {
+    for (const logicalProjectionId of projectionIds) {
       const logicalNode = graph.getNodeAttributes(logicalProjectionId) as
         | TgNodeAttributes
         | undefined;
@@ -372,6 +370,15 @@ export class MaterializeProjectionInstances extends NodeRule {
         throw new Error(
           `Rule '${MaterializeProjectionInstances.name}' expected projection node attributes for '${String(logicalProjectionId)}'`,
         );
+      }
+
+      const derivation = logicalNode.projection.derivation;
+      if (
+        !derivation ||
+        derivation.instanceKey !== undefined ||
+        derivation.instanceOrdinal !== undefined
+      ) {
+        continue;
       }
 
       const seeds = this.expandLogicalProjection(logicalProjectionId, graph);
@@ -396,8 +403,7 @@ export class MaterializeProjectionInstances extends NodeRule {
             address: seed.projectionAddress,
             label: seed.projectionLabel,
             derivation: {
-              ...logicalNode.projection.derivation,
-              source: DefaultProjectionDerivationSources.Profile,
+              ...derivation,
               groupKey: seed.groupKey,
               rootNodeId: seed.rootNodeId,
               rootInstanceAddress: seed.rootInstanceAddress,
@@ -442,7 +448,7 @@ export class MaterializeProjectionInstances extends NodeRule {
       return graph;
     }
 
-    for (const logicalProjectionId of logicalProjectionIds) {
+    for (const logicalProjectionId of projectionIds) {
       for (const edgeId of graph.outEdges(logicalProjectionId)) {
         const sourceId = graph.edgeSource(edgeId);
         const targetId = graph.edgeTarget(edgeId);

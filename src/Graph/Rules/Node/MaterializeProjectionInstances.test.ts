@@ -1239,7 +1239,7 @@ describe('MaterializeProjectionInstances', () => {
     expect(
       result.nodes[queueBlueProjection]?.projection?.derivation,
     ).toMatchObject({
-      source: DefaultProjectionDerivationSources.Profile,
+      source: DefaultProjectionDerivationSources.Plugin,
       groupKey: 'aws.sqs:channel',
       instanceKey: 'blue',
       rootNodeId: queueBlue,
@@ -1768,7 +1768,7 @@ describe('MaterializeProjectionInstances', () => {
     );
     expect(result.nodes[indexedInstance]?.projection?.derivation).toMatchObject(
       {
-        source: DefaultProjectionDerivationSources.Profile,
+        source: DefaultProjectionDerivationSources.Plugin,
         instanceKey: 'blue',
       },
     );
@@ -1856,6 +1856,162 @@ describe('MaterializeProjectionInstances', () => {
       resolved.getNodeAttributes(
         tgProjectionNodeIdFrom('core', 'aws.lambda:fn["blue"]'),
       )?.projection?.derivation?.source,
-    ).toBe(DefaultProjectionDerivationSources.Profile);
+    ).toBe(DefaultProjectionDerivationSources.Plugin);
   });
+});
+
+describe('MaterializeProjectionInstances.apply', () => {
+  it.each(
+    Object.values(DefaultProjectionDerivationSources).flatMap((source) =>
+      [false, true].map((materializedPeer) => ({ source, materializedPeer })),
+    ),
+  )(
+    'shoud preserve $source provenance and edges to an AI projection with materializedPeer=$materializedPeer',
+    ({ source, materializedPeer }) => {
+      const bucketRoot = tgNodeIdFrom('resource', 'aws_s3_bucket.site[0]');
+      const peerAddress = materializedPeer
+        ? 'aws_cloudfront_distribution.site[0]'
+        : 'aws_cloudfront_distribution.site';
+      const peerRoot = tgNodeIdFrom('resource', peerAddress);
+      const bucketProjection = tgProjectionNodeIdFrom('core', 'aws.s3:site');
+      const bucketInstance = tgProjectionNodeIdFrom('core', 'aws.s3:site[0]');
+      const peerProjection = tgProjectionNodeIdFrom(
+        'core',
+        materializedPeer ? 'aws.cloudfront:site[0]' : 'aws.cloudfront:site',
+      );
+      const graph: TgGraph = {
+        schemaVersion: TG_SCHEMA_VERSION,
+        description: {},
+        nodes: {
+          [bucketRoot]: {
+            id: bucketRoot,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_s3_bucket.site[0]',
+              resource: 'aws_s3_bucket',
+            },
+          },
+          [peerRoot]: {
+            id: peerRoot,
+            terraform: {
+              kind: 'resource',
+              address: peerAddress,
+              resource: 'aws_cloudfront_distribution',
+            },
+          },
+          [bucketProjection]: {
+            id: bucketProjection,
+            projection: {
+              layer: 'core',
+              address: 'aws.s3:site',
+              label: 'site',
+              derivation: {
+                source,
+                projectionName: 'aws.s3',
+                groupKey: 'aws.s3:site',
+                rootNodeId: bucketRoot,
+              },
+            },
+          },
+          [peerProjection]: {
+            id: peerProjection,
+            projection: {
+              layer: 'core',
+              address: materializedPeer
+                ? 'aws.cloudfront:site[0]'
+                : 'aws.cloudfront:site',
+              label: 'cloudfront',
+              derivation: {
+                source: DefaultProjectionDerivationSources.Ai,
+                projectionName: 'aws.cloudfront',
+                rootNodeId: peerRoot,
+                ...(materializedPeer
+                  ? {
+                      rootInstanceAddress: peerAddress,
+                      instanceKey: '0',
+                      instanceOrdinal: 0,
+                    }
+                  : {}),
+              },
+            },
+          },
+        },
+        edges: [
+          {
+            id: edgeIdFrom(peerProjection, bucketProjection, 'adjacency'),
+            from: peerProjection,
+            to: bucketProjection,
+            attributes: {
+              projection: {
+                layer: 'core',
+                adjacency: {
+                  source: 'derived',
+                  evidence: {
+                    derivedBy: 'anchor_path',
+                    evidenceCount: 1,
+                    shortestPathLength: 1,
+                    viaResourceTypes: [],
+                  },
+                },
+              },
+            },
+          },
+          {
+            id: edgeIdFrom(bucketProjection, peerProjection, 'relationship'),
+            from: bucketProjection,
+            to: peerProjection,
+            attributes: {
+              projection: {
+                layer: 'core',
+                relationship: { relation: 'origin', source: 'derived' },
+              },
+            },
+          },
+        ],
+      };
+      const materialize = (input: TgGraph): TgGraph =>
+        new GraphResolver(new GraphologyAdapter())
+          .resolve({
+            graph: input,
+            phases: [
+              [
+                new MaterializeProjectionInstances({
+                  options: { instanceStrategy: 'match_by_key' },
+                }),
+              ],
+            ],
+          })
+          .toTgGraph();
+
+      const result = materialize(graph);
+
+      expect(result.nodes[bucketProjection]).toBeUndefined();
+      expect(
+        result.nodes[bucketInstance]?.projection?.derivation,
+      ).toMatchObject({
+        source,
+        projectionName: 'aws.s3',
+        groupKey: 'aws.s3:site',
+        rootInstanceAddress: 'aws_s3_bucket.site[0]',
+        instanceKey: '0',
+        instanceOrdinal: 0,
+      });
+      expect(result.nodes[peerProjection]).toEqual(graph.nodes[peerProjection]);
+      expect(result.edges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            from: peerProjection,
+            to: bucketInstance,
+            attributes: graph.edges[0].attributes,
+          }),
+          expect.objectContaining({
+            from: bucketInstance,
+            to: peerProjection,
+            attributes: graph.edges[1].attributes,
+          }),
+        ]),
+      );
+      expect(materialize(result)).toEqual(result);
+    },
+  );
 });
