@@ -448,6 +448,31 @@ export class MaterializeProjectionInstances extends NodeRule {
       return graph;
     }
 
+    for (const [logicalProjectionId, instances] of replacementInstances) {
+      for (const edgeId of graph.inEdges(logicalProjectionId)) {
+        const memberId = graph.edgeSource(edgeId);
+        const member = graph.getNodeAttributes(memberId);
+        const attributes = graph.getEdgeAttributes(edgeId);
+        if (
+          !member?.terraform ||
+          member.projection ||
+          attributes.projection?.membership?.relation !==
+            DefaultProjectionMembershipRelations.ContributesTo
+        ) {
+          continue;
+        }
+
+        for (const instance of this.matchMemberInstances(member, instances)) {
+          updated = updated.setEdge(
+            edgeIdFrom(memberId, instance.projectionNodeId, String(edgeId)),
+            memberId,
+            instance.projectionNodeId,
+            { ...attributes },
+          );
+        }
+      }
+    }
+
     for (const logicalProjectionId of projectionIds) {
       for (const edgeId of graph.outEdges(logicalProjectionId)) {
         const sourceId = graph.edgeSource(edgeId);
@@ -503,6 +528,76 @@ export class MaterializeProjectionInstances extends NodeRule {
     }
 
     return updated;
+  }
+
+  private matchMemberInstances(
+    member: TgNodeAttributes,
+    instances: ProjectionInstance[],
+  ): ProjectionInstance[] {
+    // Existing logical membership is unambiguous with only one replacement,
+    // even when a permission and its function use independent for_each keys.
+    if (instances.length === 1) {
+      return instances;
+    }
+
+    const address = member.terraform?.address;
+    if (!address) {
+      return [];
+    }
+
+    const scope = parseTerraformAddressScope(address);
+    const explicitKey = serializeInstanceKeyParts([
+      ...scope.moduleKeys,
+      ...(scope.terminalKey === undefined ? [] : [scope.terminalKey]),
+    ]);
+    const memberSeeds: NormalizedInstanceSeed[] =
+      explicitKey !== undefined
+        ? [
+            {
+              rootInstanceAddress: address,
+              instanceKey: explicitKey,
+              instanceOrdinal: scope.terminalOrdinal,
+            },
+          ]
+        : member.terraform?.state?.instances.length
+          ? normalizeStateInstanceSeeds(member.terraform.state.instances)
+          : [{ rootInstanceAddress: address }];
+
+    // An unkeyed member is shared, as with singleton projection endpoints.
+    // Keyed membership allows subsets, but never guesses correspondence from
+    // unrelated for_each keys merely sharing a state-array ordinal.
+    return instances.filter((instance) =>
+      memberSeeds.some(
+        (seed) =>
+          (seed.instanceKey === undefined &&
+            seed.instanceOrdinal === undefined) ||
+          instance.isSingleton ||
+          this.isSharedModuleMember(seed, instance) ||
+          (seed.instanceKey !== undefined &&
+            instance.instanceKey !== undefined &&
+            seed.instanceKey === instance.instanceKey) ||
+          ((seed.instanceKey === undefined ||
+            instance.instanceKey === undefined) &&
+            seed.instanceOrdinal !== undefined &&
+            seed.instanceOrdinal === instance.instanceOrdinal),
+      ),
+    );
+  }
+
+  private isSharedModuleMember(
+    seed: NormalizedInstanceSeed,
+    instance: ProjectionInstance,
+  ): boolean {
+    const memberScope = parseTerraformAddressScope(seed.rootInstanceAddress);
+    const rootScope = parseTerraformAddressScope(
+      instance.rootInstanceAddress ?? '',
+    );
+    return (
+      memberScope.moduleKeys.length > 0 &&
+      memberScope.terminalKey === undefined &&
+      JSON.stringify(memberScope.moduleKeys) ===
+        JSON.stringify(rootScope.moduleKeys)
+    );
   }
 
   private resolveOptions(

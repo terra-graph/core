@@ -11,7 +11,10 @@ import {
   tgNodeIdFrom,
   tgProjectionNodeIdFrom,
 } from '../../TgGraph.js';
-import { ProjectionInstanceStrategies } from './DeriveProjectionGraph.js';
+import {
+  DeriveProjectionGraph,
+  ProjectionInstanceStrategies,
+} from './DeriveProjectionGraph.js';
 import { MaterializeProjectionInstances } from './MaterializeProjectionInstances.js';
 
 type MaterializeHarness = {
@@ -2014,4 +2017,437 @@ describe('MaterializeProjectionInstances.apply', () => {
       expect(materialize(result)).toEqual(result);
     },
   );
+});
+
+describe('MaterializeProjectionInstances.apply', () => {
+  const resolve = (graph: TgGraph): TgGraph =>
+    new GraphResolver(new GraphologyAdapter())
+      .resolve({
+        graph,
+        phases: [
+          [
+            new MaterializeProjectionInstances({
+              options: { instanceStrategy: 'match_by_key' },
+            }),
+          ],
+        ],
+      })
+      .toTgGraph();
+
+  it.each([
+    {
+      name: 'matching subset',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: ['aws_lambda_permission.invoke["blue"]'],
+      targets: ['blue'],
+    },
+    {
+      name: 'disjoint explicit keys with equal ordinals',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: [
+        'aws_lambda_permission.invoke["red"]',
+        'aws_lambda_permission.invoke["orange"]',
+      ],
+      targets: [],
+    },
+    {
+      name: 'module singleton shared among child instances',
+      roots: [
+        'module.worker["blue"].aws_lambda_function.handler[0]',
+        'module.worker["blue"].aws_lambda_function.handler[1]',
+        'module.worker["green"].aws_lambda_function.handler[0]',
+      ],
+      members: ['module.worker["blue"].aws_lambda_permission.invoke'],
+      targets: ['blue/0', 'blue/1'],
+    },
+    {
+      name: 'count subset',
+      roots: [
+        'aws_lambda_function.handler[0]',
+        'aws_lambda_function.handler[1]',
+      ],
+      members: ['aws_lambda_permission.invoke[1]'],
+      targets: ['1'],
+    },
+    {
+      name: 'module scoped members',
+      roots: [
+        'module.worker["blue"].aws_lambda_function.handler[0]',
+        'module.worker["green"].aws_lambda_function.handler[0]',
+      ],
+      members: ['module.worker["green"].aws_lambda_permission.invoke["event"]'],
+      targets: ['green'],
+    },
+    {
+      name: 'shared singleton',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: ['aws_lambda_permission.invoke'],
+      targets: ['blue', 'green'],
+    },
+    {
+      name: 'empty state fallback',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: [],
+      targets: ['blue', 'green'],
+    },
+    {
+      name: 'single replacement with independent permission keys',
+      roots: ['aws_lambda_function.handler[0]'],
+      members: ['aws_lambda_permission.invoke["event"]'],
+      targets: ['0'],
+    },
+  ])(
+    'shoud transfer $name without changing canonical nodes or membership attributes',
+    ({ roots, members, targets }) => {
+      const root = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+      const member = tgNodeIdFrom('resource', 'aws_lambda_permission.invoke');
+      const logical = tgProjectionNodeIdFrom('core', 'aws.lambda:handler');
+      const graph: TgGraph = {
+        schemaVersion: TG_SCHEMA_VERSION,
+        description: {},
+        nodes: {
+          [root]: {
+            id: root,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_lambda_function.handler',
+              resource: 'aws_lambda_function',
+              name: 'handler',
+              state: {
+                source: 'plan_show',
+                effective: null,
+                instances: roots.map((address) => ({ address, values: null })),
+              },
+            },
+          },
+          [member]: {
+            id: member,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_lambda_permission.invoke',
+              resource: 'aws_lambda_permission',
+              name: 'invoke',
+              state: {
+                source: 'plan_show',
+                effective: null,
+                instances: members.map((address) => ({
+                  address,
+                  values: null,
+                })),
+              },
+            },
+          },
+          [logical]: {
+            id: logical,
+            projection: {
+              layer: 'core',
+              address: 'aws.lambda:handler',
+              label: 'Handler',
+              derivation: {
+                source: 'plugin',
+                projectionName: 'aws.lambda',
+                rootNodeId: root,
+              },
+            },
+          },
+        },
+        edges: [
+          {
+            id: edgeIdFrom(member, logical, 'membership'),
+            from: member,
+            to: logical,
+            attributes: {
+              projection: {
+                layer: 'core',
+                membership: { relation: 'contributes_to', source: 'derived' },
+              },
+              adapter: { custom: { provenance: 'permission rule' } },
+              customAttribute: 'preserved',
+            },
+          },
+        ],
+      };
+
+      const result = resolve(graph);
+      expect(result.nodes[logical]).toBeUndefined();
+      expect(result.nodes[root]).toEqual(graph.nodes[root]);
+      expect(result.nodes[member]).toEqual(graph.nodes[member]);
+      const memberships = result.edges.filter(
+        (edge) =>
+          edge.attributes?.projection?.membership?.relation ===
+          'contributes_to',
+      );
+      expect(
+        memberships
+          .map(
+            (edge) => result.nodes[edge.to].projection?.derivation?.instanceKey,
+          )
+          .sort(),
+      ).toEqual([...targets].sort());
+      for (const edge of memberships) {
+        expect(edge.from).toBe(member);
+        expect(edge.attributes).toEqual(graph.edges[0].attributes);
+      }
+      expect(
+        result.edges.filter(
+          (edge) =>
+            edge.from === root &&
+            edge.attributes?.projection?.membership?.relation === 'realizes',
+        ),
+      ).toHaveLength(roots.length);
+      expect(resolve(result)).toEqual(result);
+    },
+  );
+
+  it('shoud preserve explicitly indexed canonical membership on only its matching module instance', () => {
+    const root = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+    const address = 'module.worker["green"].aws_lambda_permission.invoke[0]';
+    const member = tgNodeIdFrom('resource', address);
+    const logical = tgProjectionNodeIdFrom('core', 'aws.lambda:handler');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [root]: {
+          id: root,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.handler',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: ['blue', 'green'].flatMap((key) =>
+                [0, 1].map((index) => ({
+                  address: `module.worker[${JSON.stringify(key)}].aws_lambda_function.handler[${index}]`,
+                  values: null,
+                })),
+              ),
+            },
+          },
+        },
+        [member]: { id: member, terraform: { kind: 'resource', address } },
+        [logical]: {
+          id: logical,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:handler',
+            label: 'Handler',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.lambda',
+              rootNodeId: root,
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: edgeIdFrom(member, logical, 'membership'),
+          from: member,
+          to: logical,
+          attributes: {
+            projection: {
+              layer: 'core',
+              membership: { relation: 'contributes_to', source: 'derived' },
+            },
+          },
+        },
+      ],
+    };
+    const result = resolve(graph);
+    const memberships = result.edges.filter((edge) => edge.from === member);
+    expect(memberships).toHaveLength(1);
+    expect(
+      result.nodes[memberships[0].to].projection?.derivation?.instanceKey,
+    ).toBe('green/0');
+  });
+
+  it('shoud preserve Lambda permission membership through derivation and instance materialization', () => {
+    const root = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+    const member = tgNodeIdFrom('resource', 'aws_lambda_permission.invoke');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [root]: {
+          id: root,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_lambda_function',
+            address: 'aws_lambda_function.handler',
+            name: 'handler',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.handler[0]',
+                  index: 0,
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [member]: {
+          id: member,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_lambda_permission',
+            address: 'aws_lambda_permission.invoke',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_permission.invoke["EventBridge"]',
+                  index: 'EventBridge',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+      },
+      edges: [
+        { id: edgeIdFrom(member, root, 'dependency'), from: member, to: root },
+      ],
+    };
+    const derived = new GraphResolver(new GraphologyAdapter())
+      .resolve({
+        graph,
+        phases: [
+          [
+            new DeriveProjectionGraph({
+              options: {
+                instanceStrategy: 'none',
+                projections: [
+                  {
+                    name: 'aws.lambda',
+                    rootNode: {
+                      attr: {
+                        key: 'terraform.resource',
+                        eq: 'aws_lambda_function',
+                      },
+                    },
+                    membership: {
+                      maxDepth: 2,
+                      includeResources: ['aws_lambda_*'],
+                    },
+                  },
+                ],
+              },
+            }),
+          ],
+        ],
+      })
+      .toTgGraph();
+    const membership = derived.edges.find(
+      (edge) =>
+        edge.from === member &&
+        edge.attributes?.projection?.membership?.relation === 'contributes_to',
+    );
+    expect(membership).toBeDefined();
+    const result = resolve(derived);
+    expect(result.nodes[membership?.to as NodeId]).toBeUndefined();
+    const retained = result.edges.find(
+      (edge) =>
+        edge.from === member &&
+        edge.attributes?.projection?.membership?.relation === 'contributes_to',
+    );
+    expect(retained?.attributes).toEqual(membership?.attributes);
+    expect(
+      result.nodes[retained?.to as NodeId].projection?.derivation
+        ?.rootInstanceAddress,
+    ).toBe('aws_lambda_function.handler[0]');
+    expect(result.edges).toContainEqual(
+      expect.objectContaining({ from: member, to: root }),
+    );
+  });
+});
+
+describe('MaterializeProjectionInstances.apply', () => {
+  it('shoud match ordinal-only roots and omit a member with no address', () => {
+    const roots = [
+      tgNodeIdFrom('resource', 'root_a'),
+      tgNodeIdFrom('resource', 'root_b'),
+    ];
+    const member = tgNodeIdFrom('resource', 'aws_lambda_permission.invoke[1]');
+    const unknown = tgNodeIdFrom('resource', 'unknown_member');
+    const logical = tgProjectionNodeIdFrom('core', 'aws.lambda:handler');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        ...Object.fromEntries(
+          roots.map((id) => [
+            id,
+            { id, terraform: { kind: 'resource' as const } },
+          ]),
+        ),
+        [member]: {
+          id: member,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_permission.invoke[1]',
+          },
+        },
+        [unknown]: { id: unknown, terraform: { kind: 'resource' } },
+        [logical]: {
+          id: logical,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:handler',
+            label: 'Handler',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.lambda',
+              anchors: roots.map((nodeId) => ({ nodeId, role: 'root_node' })),
+            },
+          },
+        },
+      },
+      edges: [member, unknown].map((from) => ({
+        id: edgeIdFrom(from, logical, 'membership'),
+        from,
+        to: logical,
+        attributes: {
+          projection: {
+            layer: 'core',
+            membership: { relation: 'contributes_to', source: 'derived' },
+          },
+        },
+      })),
+    };
+    const result = new GraphResolver(new GraphologyAdapter())
+      .resolve({
+        graph,
+        phases: [
+          [
+            new MaterializeProjectionInstances({
+              options: { instanceStrategy: 'match_by_key' },
+            }),
+          ],
+        ],
+      })
+      .toTgGraph();
+    expect(result.edges.filter((edge) => edge.from === unknown)).toEqual([]);
+    const memberships = result.edges.filter((edge) => edge.from === member);
+    expect(memberships).toHaveLength(1);
+    expect(
+      result.nodes[memberships[0].to].projection?.derivation?.instanceOrdinal,
+    ).toBe(1);
+  });
 });
