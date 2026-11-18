@@ -1,0 +1,2453 @@
+import { DirectedGraph } from 'graphology';
+import { GraphologyAdapter } from '../../Adapters/GraphologyAdapter.js';
+import { GraphResolver } from '../../GraphResolver.js';
+import {
+  DefaultProjectionDerivationSources,
+  NodeId,
+  TG_SCHEMA_VERSION,
+  TgGraph,
+  TgNodeAttributes,
+  edgeIdFrom,
+  tgNodeIdFrom,
+  tgProjectionNodeIdFrom,
+} from '../../TgGraph.js';
+import {
+  DeriveProjectionGraph,
+  ProjectionInstanceStrategies,
+} from './DeriveProjectionGraph.js';
+import { MaterializeProjectionInstances } from './MaterializeProjectionInstances.js';
+
+type MaterializeHarness = {
+  expandLogicalProjection(
+    logicalProjectionId: NodeId,
+    graph: GraphologyAdapter,
+  ): Array<Record<string, unknown>>;
+  rootAnchors(
+    derivation: unknown,
+    logicalProjectionId: NodeId,
+  ): Array<Record<string, unknown>>;
+  resolveProjectionInstances(
+    projectionNodeId: NodeId,
+    projectionNode: TgNodeAttributes,
+    replacements: Map<NodeId, Array<Record<string, unknown>>>,
+  ): Array<Record<string, unknown>>;
+  matchInstances(
+    source: Array<Record<string, unknown>>,
+    target: Array<Record<string, unknown>>,
+  ): Array<Record<string, unknown>>;
+  edgeSuffix(attributes: Record<string, unknown>, edgeId: string): string;
+};
+
+const asHarness = (rule: MaterializeProjectionInstances): MaterializeHarness =>
+  rule as unknown as MaterializeHarness;
+
+const parseOptions = (input: unknown): { instanceStrategy?: string } =>
+  (
+    MaterializeProjectionInstances as unknown as {
+      parseOptions(inputValue: unknown): { instanceStrategy?: string };
+    }
+  ).parseOptions(input);
+
+describe('MaterializeProjectionInstances', () => {
+  it('should parse options and expose helper fallbacks', () => {
+    expect(parseOptions(undefined)).toEqual({
+      instanceStrategy: ProjectionInstanceStrategies.None,
+    });
+    expect(parseOptions({ instanceStrategy: 'bad-value' })).toEqual({
+      instanceStrategy: ProjectionInstanceStrategies.None,
+    });
+    expect(
+      parseOptions({
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      }),
+    ).toEqual({
+      instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+    });
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const helpers = asHarness(rule);
+
+    expect(
+      helpers.rootAnchors(
+        undefined,
+        tgNodeIdFrom('resource', 'aws_lambda_function.fallback'),
+      ),
+    ).toEqual([
+      {
+        nodeId: tgNodeIdFrom('resource', 'aws_lambda_function.fallback'),
+        role: 'root_node',
+      },
+    ]);
+    expect(
+      helpers.rootAnchors(
+        {
+          rootNodeId: tgNodeIdFrom('resource', 'aws_lambda_function.root'),
+        },
+        tgNodeIdFrom('resource', 'aws_lambda_function.ignored'),
+      ),
+    ).toEqual([
+      {
+        nodeId: tgNodeIdFrom('resource', 'aws_lambda_function.root'),
+        role: 'root_node',
+      },
+    ]);
+    expect(
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        source: {
+          projectionNodeId: 'source-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+        },
+        target: {
+          projectionNodeId: 'target-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+        },
+      },
+    ]);
+    expect(
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-0',
+            isSingleton: false,
+            instanceOrdinal: 0,
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+            instanceOrdinal: 0,
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        source: {
+          projectionNodeId: 'source-0',
+          isSingleton: false,
+          instanceOrdinal: 0,
+        },
+        target: {
+          projectionNodeId: 'target-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+          instanceOrdinal: 0,
+        },
+      },
+    ]);
+    expect(
+      helpers.matchInstances(
+        [{ projectionNodeId: 'singleton', isSingleton: true }],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        source: {
+          projectionNodeId: 'singleton',
+          isSingleton: true,
+        },
+        target: {
+          projectionNodeId: 'target-blue',
+          isSingleton: false,
+          instanceKey: 'blue',
+        },
+      },
+    ]);
+    expect(
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-green',
+            isSingleton: false,
+            instanceKey: 'green',
+          },
+        ],
+      ),
+    ).toEqual([]);
+    expect(
+      helpers.matchInstances(
+        [
+          {
+            projectionNodeId: 'source-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+          },
+          {
+            projectionNodeId: 'source-green',
+            isSingleton: false,
+            instanceKey: 'green',
+          },
+        ],
+        [
+          {
+            projectionNodeId: 'target-blue',
+            isSingleton: false,
+            instanceKey: 'blue',
+            instanceOrdinal: 0,
+          },
+          {
+            projectionNodeId: 'target-red',
+            isSingleton: false,
+            instanceKey: 'red',
+            instanceOrdinal: 1,
+          },
+        ],
+      ),
+    ).toEqual([]);
+    expect(
+      helpers.edgeSuffix(
+        {
+          projection: {
+            layer: 'core',
+            membership: { relation: 'realizes' },
+          },
+        },
+        'edge:ignored',
+      ),
+    ).toBe('projection:core:realizes');
+    expect(
+      helpers.edgeSuffix(
+        {
+          projection: {
+            layer: 'core',
+            adjacency: { source: 'derived' },
+          },
+        },
+        'edge:ignored',
+      ),
+    ).toBe('projection:core:adjacency');
+    expect(helpers.edgeSuffix({}, 'prefix:custom')).toBe('custom');
+  });
+
+  it('should normalize numeric and raw module instance keys when expanding logical projections', () => {
+    const rootNodeId = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.handler_family',
+    );
+    const projectionNodeId = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:handler',
+    );
+    const graph = new GraphologyAdapter(new DirectedGraph()).withTgGraph({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [rootNodeId]: {
+          id: rootNodeId,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.handler_family',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address: 'aws_lambda_function.handler_family',
+                values: null,
+              },
+              instances: [
+                {
+                  address: 'module.group[0].aws_lambda_function.handler[1]',
+                  values: null,
+                },
+                {
+                  address: 'module.group[bad-key].aws_lambda_function.handler',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [projectionNodeId]: {
+          id: projectionNodeId,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:handler',
+            label: 'Handler',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:handler',
+              rootNodeId,
+              anchors: [{ nodeId: rootNodeId, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    });
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const helpers = asHarness(rule);
+
+    expect(helpers.expandLogicalProjection(projectionNodeId, graph)).toEqual([
+      expect.objectContaining({
+        instanceKey: '0/1',
+        instanceOrdinal: 1,
+      }),
+      expect.objectContaining({
+        instanceKey: 'bad-key',
+      }),
+    ]);
+  });
+
+  it('should fall back to state index when a logical projection instance has no ordinal', () => {
+    const rootNodeId = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.singleton_family',
+    );
+    const projectionNodeId = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:singleton',
+    );
+    const graph = new GraphologyAdapter(new DirectedGraph()).withTgGraph({
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [rootNodeId]: {
+          id: rootNodeId,
+          terraform: {
+            address: 'aws_lambda_function.singleton_family',
+            kind: 'resource',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address: 'aws_lambda_function.singleton_family',
+                values: null,
+              },
+              instances: [
+                {
+                  address: 'aws_lambda_function.singleton_family',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [projectionNodeId]: {
+          id: projectionNodeId,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:singleton',
+            label: 'Singleton',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:singleton',
+              rootNodeId,
+              anchors: [{ nodeId: rootNodeId, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    });
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+
+    expect(
+      asHarness(rule).expandLogicalProjection(projectionNodeId, graph),
+    ).toEqual([
+      expect.objectContaining({
+        rootInstanceAddress: 'aws_lambda_function.singleton_family',
+      }),
+    ]);
+  });
+
+  it('should exercise logical expansion helper branches', () => {
+    const plainNode = tgNodeIdFrom('resource', 'aws_lambda_function.plain');
+    const noAddress = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.no_address',
+    );
+    const quotedIndex = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.quoted["blue"]',
+    );
+    const invalidIndex = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.invalid[blue]',
+    );
+    const indexedFromState = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.stateful',
+    );
+    const fallbackA = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.fallback_a',
+    );
+    const fallbackB = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.fallback_b',
+    );
+    const anchorOnlyA = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.anchor_only_a',
+    );
+    const anchorOnlyB = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.anchor_only_b',
+    );
+    const stateVariants = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.edge_cases',
+    );
+    const projectionNoAddress = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:no_address',
+    );
+    const projectionQuoted = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:quoted',
+    );
+    const projectionInvalid = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:invalid',
+    );
+    const projectionState = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:stateful',
+    );
+    const projectionFallback = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:fallback',
+    );
+    const projectionAnchorOnly = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:anchor_only',
+    );
+    const projectionStateVariants = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:edge_cases',
+    );
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [plainNode]: {
+          id: plainNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.plain',
+            resource: 'aws_lambda_function',
+            name: 'plain',
+          },
+        },
+        [noAddress]: {
+          id: noAddress,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_lambda_function',
+            name: 'no_address',
+          },
+        },
+        [quotedIndex]: {
+          id: quotedIndex,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.quoted["blue"]',
+            resource: 'aws_lambda_function',
+            name: 'quoted["blue"]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.quoted["blue"]',
+                  index: 'blue',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [invalidIndex]: {
+          id: invalidIndex,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.invalid[blue]',
+            resource: 'aws_lambda_function',
+            name: 'invalid[blue]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.other["green"]',
+                  index: 'green',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [indexedFromState]: {
+          id: indexedFromState,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.stateful',
+            resource: 'aws_lambda_function',
+            name: 'stateful',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.stateful[0]',
+                  index: undefined,
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [fallbackA]: {
+          id: fallbackA,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.fallback_a',
+            resource: 'aws_lambda_function',
+            name: 'fallback_a',
+          },
+        },
+        [fallbackB]: {
+          id: fallbackB,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.fallback_b',
+            resource: 'aws_lambda_function',
+            name: 'fallback_b',
+          },
+        },
+        [anchorOnlyA]: {
+          id: anchorOnlyA,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_lambda_function',
+            name: 'anchor_only_a',
+          },
+        },
+        [anchorOnlyB]: {
+          id: anchorOnlyB,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_lambda_function',
+            name: 'anchor_only_b',
+          },
+        },
+        [stateVariants]: {
+          id: stateVariants,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.edge_cases',
+            resource: 'aws_lambda_function',
+            name: 'edge_cases',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.edge_cases[2]',
+                  index: 2,
+                  values: null,
+                },
+                {
+                  address: 'aws_lambda_function.edge_cases["blue"]',
+                  index: '' as unknown as string,
+                  values: null,
+                },
+                {
+                  address: 'aws_lambda_function.edge_cases',
+                  index: '' as unknown as string,
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [projectionNoAddress]: {
+          id: projectionNoAddress,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:no_address',
+            label: 'no_address',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:no_address',
+              anchors: [{ nodeId: noAddress, role: 'root_node' }],
+            },
+          },
+        },
+        [projectionQuoted]: {
+          id: projectionQuoted,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:quoted',
+            label: 'quoted',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:quoted',
+              anchors: [{ nodeId: quotedIndex, role: 'root_node' }],
+            },
+          },
+        },
+        [projectionInvalid]: {
+          id: projectionInvalid,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:invalid',
+            label: 'invalid',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:invalid',
+              anchors: [{ nodeId: invalidIndex, role: 'root_node' }],
+            },
+          },
+        },
+        [projectionState]: {
+          id: projectionState,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:stateful',
+            label: 'stateful',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:stateful',
+              anchors: [{ nodeId: indexedFromState, role: 'root_node' }],
+            },
+          },
+        },
+        [projectionFallback]: {
+          id: projectionFallback,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:fallback',
+            label: 'fallback',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:fallback',
+              anchors: [
+                { nodeId: fallbackA, role: 'root_node' },
+                { nodeId: fallbackB, role: 'root_node' },
+              ],
+            },
+          },
+        },
+        [projectionAnchorOnly]: {
+          id: projectionAnchorOnly,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:anchor_only',
+            label: 'anchor_only',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:anchor_only',
+              anchors: [
+                { nodeId: anchorOnlyA, role: 'root_node' },
+                { nodeId: anchorOnlyB, role: 'root_node' },
+              ],
+            },
+          },
+        },
+        [projectionStateVariants]: {
+          id: projectionStateVariants,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:edge_cases',
+            label: 'edge_cases',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:edge_cases',
+              anchors: [{ nodeId: stateVariants, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
+      graph,
+    );
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const helpers = asHarness(rule);
+
+    expect(helpers.expandLogicalProjection(plainNode, adapter)).toEqual([]);
+    expect(
+      helpers.expandLogicalProjection(projectionNoAddress, adapter),
+    ).toMatchObject([
+      {
+        projectionAddress: 'aws.lambda:no_address',
+        isSingleton: true,
+      },
+    ]);
+    expect(
+      helpers.expandLogicalProjection(projectionQuoted, adapter),
+    ).toMatchObject([
+      {
+        projectionAddress: 'aws.lambda:quoted["blue"]',
+        instanceKey: 'blue',
+        instanceOrdinal: 0,
+      },
+    ]);
+    expect(
+      helpers.expandLogicalProjection(projectionInvalid, adapter),
+    ).toMatchObject([
+      {
+        projectionAddress: 'aws.lambda:invalid["blue"]',
+        instanceKey: 'blue',
+      },
+    ]);
+    expect(
+      helpers.expandLogicalProjection(projectionState, adapter),
+    ).toMatchObject([
+      {
+        projectionAddress: 'aws.lambda:stateful[0]',
+        instanceOrdinal: 0,
+      },
+    ]);
+    expect(
+      helpers.expandLogicalProjection(projectionFallback, adapter),
+    ).toMatchObject([
+      {
+        projectionAddress: 'aws.lambda:fallback[0]',
+        instanceOrdinal: 0,
+      },
+      {
+        projectionAddress: 'aws.lambda:fallback[1]',
+        instanceOrdinal: 1,
+      },
+    ]);
+    expect(
+      helpers.expandLogicalProjection(projectionAnchorOnly, adapter),
+    ).toMatchObject([
+      {
+        projectionAddress: 'aws.lambda:anchor_only[0]',
+        instanceOrdinal: 0,
+      },
+      {
+        projectionAddress: 'aws.lambda:anchor_only[1]',
+        instanceOrdinal: 1,
+      },
+    ]);
+    expect(
+      helpers.expandLogicalProjection(projectionStateVariants, adapter),
+    ).toMatchObject([
+      {
+        projectionAddress: 'aws.lambda:edge_cases[2]',
+        instanceKey: '2',
+        instanceOrdinal: 2,
+      },
+      {
+        projectionAddress: 'aws.lambda:edge_cases["blue"]',
+        instanceKey: 'blue',
+        instanceOrdinal: 1,
+      },
+      {
+        projectionAddress: 'aws.lambda:edge_cases',
+        rootInstanceAddress: 'aws_lambda_function.edge_cases',
+        isSingleton: true,
+      },
+    ]);
+
+    const fallbackProjectionNode = graph.nodes[
+      projectionQuoted
+    ] as TgNodeAttributes;
+    expect(
+      helpers.resolveProjectionInstances(
+        projectionQuoted,
+        fallbackProjectionNode,
+        new Map(),
+      ),
+    ).toMatchObject([
+      {
+        projectionNodeId: projectionQuoted,
+        projectionAddress: 'aws.lambda:quoted',
+        groupKey: 'aws.lambda:quoted',
+        isSingleton: true,
+      },
+    ]);
+    expect(
+      helpers.resolveProjectionInstances(
+        projectionQuoted,
+        fallbackProjectionNode,
+        new Map([[projectionQuoted, [{ projectionNodeId: plainNode }]]]),
+      ),
+    ).toEqual([{ projectionNodeId: plainNode }]);
+    expect(
+      helpers.resolveProjectionInstances(
+        projectionQuoted,
+        {
+          id: projectionQuoted,
+          projection: {
+            derivation: {},
+          },
+        } as unknown as TgNodeAttributes,
+        new Map(),
+      ),
+    ).toEqual([
+      {
+        projectionNodeId: projectionQuoted,
+        projectionAddress: String(projectionQuoted),
+        projectionLabel: String(projectionQuoted),
+        groupKey: String(projectionQuoted),
+        rootNodeId: projectionQuoted,
+        rootInstanceAddress: undefined,
+        instanceKey: undefined,
+        instanceOrdinal: undefined,
+        isSingleton: true,
+        anchors: [],
+        layer: 'core',
+      },
+    ]);
+  });
+
+  it('should skip apply branches for unmatched, none strategy, missing logical projections, and non-materialized logical projections', () => {
+    const projectionNode = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:singleton',
+    );
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [projectionNode]: {
+          id: projectionNode,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:singleton',
+            label: 'singleton',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:singleton',
+              rootNodeId: tgNodeIdFrom(
+                'resource',
+                'aws_lambda_function.singleton',
+              ),
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
+      graph,
+    );
+    const noneRule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.None,
+      },
+    });
+    noneRule.match(
+      projectionNode,
+      graph.nodes[projectionNode] as TgNodeAttributes,
+      adapter,
+    );
+    expect(
+      noneRule.apply(
+        projectionNode,
+        graph.nodes[projectionNode] as TgNodeAttributes,
+        adapter,
+      ),
+    ).toBe(adapter);
+
+    const unmatchedRule = new MaterializeProjectionInstances({
+      node: {
+        attr: { key: 'terraform.name', eq: 'missing' },
+      },
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    } as never);
+    expect(
+      unmatchedRule.apply(
+        projectionNode,
+        graph.nodes[projectionNode] as TgNodeAttributes,
+        adapter,
+      ),
+    ).toBe(adapter);
+
+    const plainGraph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [tgNodeIdFrom('resource', 'aws_lambda_function.plain')]: {
+          id: tgNodeIdFrom('resource', 'aws_lambda_function.plain'),
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.plain',
+            resource: 'aws_lambda_function',
+            name: 'plain',
+          },
+        },
+      },
+      edges: [],
+    };
+    const plainAdapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
+      plainGraph,
+    );
+    const matchRule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const firstPlainNode = plainAdapter.nodeIds()[0] as NodeId;
+    matchRule.match(
+      firstPlainNode,
+      plainAdapter.getNodeAttributes(firstPlainNode) as TgNodeAttributes,
+      plainAdapter,
+    );
+    expect(
+      matchRule.apply(
+        firstPlainNode,
+        plainAdapter.getNodeAttributes(firstPlainNode) as TgNodeAttributes,
+        plainAdapter,
+      ),
+    ).toBe(plainAdapter);
+
+    matchRule.match(
+      projectionNode,
+      graph.nodes[projectionNode] as TgNodeAttributes,
+      adapter,
+    );
+    const noMaterializationResult = matchRule.apply(
+      projectionNode,
+      graph.nodes[projectionNode] as TgNodeAttributes,
+      adapter,
+    );
+    expect(noMaterializationResult).toBe(adapter);
+  });
+
+  it('should throw when a discovered logical projection loses its projection attrs during materialization', () => {
+    const projectionNode = tgProjectionNodeIdFrom('core', 'aws.lambda:flaky');
+    const projectionAttributes: TgNodeAttributes = {
+      id: projectionNode,
+      projection: {
+        layer: 'core',
+        address: 'aws.lambda:flaky',
+        label: 'flaky',
+        derivation: {
+          source: DefaultProjectionDerivationSources.Plugin,
+          projectionName: 'aws.lambda',
+          groupKey: 'aws.lambda:flaky',
+          rootNodeId: tgNodeIdFrom('resource', 'aws_lambda_function.flaky'),
+        },
+      },
+    };
+
+    let getNodeAttributesCalls = 0;
+    const flakyAdapter = {
+      nodeIds: () => [projectionNode],
+      getNodeAttributes: () => {
+        getNodeAttributesCalls += 1;
+        return getNodeAttributesCalls === 1 ? projectionAttributes : undefined;
+      },
+    } as unknown as GraphologyAdapter;
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    rule.match(projectionNode, projectionAttributes, flakyAdapter);
+
+    expect(() =>
+      rule.apply(projectionNode, projectionAttributes, flakyAdapter),
+    ).toThrow(
+      `Rule 'MaterializeProjectionInstances' expected projection node attributes for '${projectionNode}'`,
+    );
+  });
+
+  it('should fall back to a materialized realizes edge suffix when projectionName is missing', async () => {
+    const rootNode = tgNodeIdFrom('resource', 'aws_lambda_function.counted[0]');
+    const logicalProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:counted',
+    );
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [rootNode]: {
+          id: rootNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.counted[0]',
+            resource: 'aws_lambda_function',
+            name: 'counted[0]',
+          },
+        },
+        [logicalProjection]: {
+          id: logicalProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:counted',
+            label: 'counted',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              groupKey: 'aws.lambda:counted',
+              anchors: [{ nodeId: rootNode, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+    const adapter = new GraphologyAdapter(new DirectedGraph()).withTgGraph(
+      graph,
+    );
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const node = adapter.getNodeAttributes(rootNode) as TgNodeAttributes;
+    rule.match(rootNode, node, adapter);
+
+    const updated = await rule.apply(rootNode, node, adapter);
+    expect(updated.outEdges(rootNode)).toContain(
+      edgeIdFrom(
+        rootNode,
+        tgProjectionNodeIdFrom('core', 'aws.lambda:counted[0]'),
+        'projection:materialized:realizes',
+      ),
+    );
+  });
+
+  it('should expand logical keyed projections into keyed 1:1 edges', () => {
+    const queueBlue = tgNodeIdFrom('resource', 'aws_sqs_queue.channel["blue"]');
+    const queueGreen = tgNodeIdFrom(
+      'resource',
+      'aws_sqs_queue.channel["green"]',
+    );
+    const lambdaBlue = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.consumer["blue"]',
+    );
+    const lambdaGreen = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.consumer["green"]',
+    );
+    const queueProjection = tgProjectionNodeIdFrom('core', 'aws.sqs:channel');
+    const lambdaProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:consumer',
+    );
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [queueBlue]: {
+          id: queueBlue,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.channel["blue"]',
+            resource: 'aws_sqs_queue',
+            name: 'channel["blue"]',
+          },
+        },
+        [queueGreen]: {
+          id: queueGreen,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.channel["green"]',
+            resource: 'aws_sqs_queue',
+            name: 'channel["green"]',
+          },
+        },
+        [lambdaBlue]: {
+          id: lambdaBlue,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.consumer["blue"]',
+            resource: 'aws_lambda_function',
+            name: 'consumer["blue"]',
+          },
+        },
+        [lambdaGreen]: {
+          id: lambdaGreen,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.consumer["green"]',
+            resource: 'aws_lambda_function',
+            name: 'consumer["green"]',
+          },
+        },
+        [queueProjection]: {
+          id: queueProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.sqs:channel',
+            label: 'channel',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.sqs',
+              groupKey: 'aws.sqs:channel',
+              rootNodeId: queueBlue,
+              anchors: [
+                {
+                  nodeId: queueBlue,
+                  address: 'aws_sqs_queue.channel["blue"]',
+                  role: 'root_node',
+                },
+                {
+                  nodeId: queueGreen,
+                  address: 'aws_sqs_queue.channel["green"]',
+                  role: 'root_node',
+                },
+              ],
+            },
+          },
+        },
+        [lambdaProjection]: {
+          id: lambdaProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:consumer',
+            label: 'consumer',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:consumer',
+              rootNodeId: lambdaBlue,
+              anchors: [
+                {
+                  nodeId: lambdaBlue,
+                  address: 'aws_lambda_function.consumer["blue"]',
+                  role: 'root_node',
+                },
+                {
+                  nodeId: lambdaGreen,
+                  address: 'aws_lambda_function.consumer["green"]',
+                  role: 'root_node',
+                },
+              ],
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: 'logical-adjacency' as never,
+          from: queueProjection,
+          to: lambdaProjection,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+                evidence: {
+                  derivedBy: 'anchor_path',
+                  evidenceCount: 1,
+                  shortestPathLength: 1,
+                  viaResourceTypes: ['aws_lambda_event_source_mapping'],
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
+    const hasEdge = (from: NodeId, to: NodeId) =>
+      result.edges.some((edge) => edge.from === from && edge.to === to);
+
+    const queueBlueProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:channel["blue"]',
+    );
+    const queueGreenProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:channel["green"]',
+    );
+    const lambdaBlueProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:consumer["blue"]',
+    );
+    const lambdaGreenProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:consumer["green"]',
+    );
+
+    expect(result.nodes[queueProjection]).toBeUndefined();
+    expect(result.nodes[lambdaProjection]).toBeUndefined();
+    expect(
+      result.nodes[queueBlueProjection]?.projection?.derivation,
+    ).toMatchObject({
+      source: DefaultProjectionDerivationSources.Plugin,
+      groupKey: 'aws.sqs:channel',
+      instanceKey: 'blue',
+      rootNodeId: queueBlue,
+    });
+    expect(hasEdge(queueBlueProjection, lambdaBlueProjection)).toBe(true);
+    expect(hasEdge(queueBlueProjection, lambdaGreenProjection)).toBe(false);
+    expect(hasEdge(queueGreenProjection, lambdaBlueProjection)).toBe(false);
+    expect(hasEdge(queueGreenProjection, lambdaGreenProjection)).toBe(true);
+  });
+
+  it('should materialize module-aware projection instances from collapsed state instances', () => {
+    const lambdaRoot = tgNodeIdFrom(
+      'resource',
+      'module.gemini_bulk_request.aws_lambda_function.this',
+    );
+    const lambdaProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this',
+    );
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [lambdaRoot]: {
+          id: lambdaRoot,
+          terraform: {
+            kind: 'resource',
+            address: 'module.gemini_bulk_request.aws_lambda_function.this',
+            resource: 'aws_lambda_function',
+            name: 'this',
+            state: {
+              source: 'plan_show',
+              effective: {
+                address:
+                  'module.gemini_bulk_request["abi"].aws_lambda_function.this[0]',
+                index: 0,
+                values: null,
+              },
+              instances: [
+                {
+                  address:
+                    'module.gemini_bulk_request["abi"].aws_lambda_function.this[0]',
+                  index: 0,
+                  values: null,
+                },
+                {
+                  address:
+                    'module.gemini_bulk_request["mei"].aws_lambda_function.this[0]',
+                  index: 0,
+                  values: null,
+                },
+                {
+                  address:
+                    'module.gemini_bulk_request["mti"].aws_lambda_function.this[0]',
+                  index: 0,
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [lambdaProjection]: {
+          id: lambdaProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:gemini_bulk_request.this',
+            label: 'gemini_bulk_request.this',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:gemini_bulk_request.this',
+              rootNodeId: lambdaRoot,
+              anchors: [{ nodeId: lambdaRoot, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
+
+    const lambdaAbiProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this["abi"]',
+    );
+    const lambdaMeiProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this["mei"]',
+    );
+    const lambdaMtiProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this["mti"]',
+    );
+    const collapsedProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:gemini_bulk_request.this[0]',
+    );
+
+    expect(result.nodes[lambdaProjection]).toBeUndefined();
+    expect(result.nodes[collapsedProjection]).toBeUndefined();
+    expect(
+      result.nodes[lambdaAbiProjection]?.projection?.derivation,
+    ).toMatchObject({
+      groupKey: 'aws.lambda:gemini_bulk_request.this',
+      rootNodeId: lambdaRoot,
+      rootInstanceAddress:
+        'module.gemini_bulk_request["abi"].aws_lambda_function.this[0]',
+      instanceKey: 'abi',
+    });
+    expect(
+      result.nodes[lambdaMeiProjection]?.projection?.derivation,
+    ).toMatchObject({
+      groupKey: 'aws.lambda:gemini_bulk_request.this',
+      rootNodeId: lambdaRoot,
+      rootInstanceAddress:
+        'module.gemini_bulk_request["mei"].aws_lambda_function.this[0]',
+      instanceKey: 'mei',
+    });
+    expect(
+      result.nodes[lambdaMtiProjection]?.projection?.derivation,
+    ).toMatchObject({
+      groupKey: 'aws.lambda:gemini_bulk_request.this',
+      rootNodeId: lambdaRoot,
+      rootInstanceAddress:
+        'module.gemini_bulk_request["mti"].aws_lambda_function.this[0]',
+      instanceKey: 'mti',
+    });
+  });
+
+  it('should fall back to ordinal matching for logical projections with different key spaces', () => {
+    const replay0 = tgNodeIdFrom('resource', 'aws_sqs_queue.replay[0]');
+    const replay1 = tgNodeIdFrom('resource', 'aws_sqs_queue.replay[1]');
+    const deadBlue = tgNodeIdFrom(
+      'resource',
+      'aws_sqs_queue.dead_letter["blue"]',
+    );
+    const deadGreen = tgNodeIdFrom(
+      'resource',
+      'aws_sqs_queue.dead_letter["green"]',
+    );
+    const replayProjection = tgProjectionNodeIdFrom('core', 'aws.sqs:replay');
+    const deadLetterProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:dead_letter',
+    );
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [replay0]: {
+          id: replay0,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.replay[0]',
+            resource: 'aws_sqs_queue',
+            name: 'replay[0]',
+          },
+        },
+        [replay1]: {
+          id: replay1,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.replay[1]',
+            resource: 'aws_sqs_queue',
+            name: 'replay[1]',
+          },
+        },
+        [deadBlue]: {
+          id: deadBlue,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.dead_letter["blue"]',
+            resource: 'aws_sqs_queue',
+            name: 'dead_letter["blue"]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_sqs_queue.dead_letter["blue"]',
+                  index: 'blue',
+                  values: null,
+                },
+                {
+                  address: 'aws_sqs_queue.dead_letter["green"]',
+                  index: 'green',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [deadGreen]: {
+          id: deadGreen,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_sqs_queue.dead_letter["green"]',
+            resource: 'aws_sqs_queue',
+            name: 'dead_letter["green"]',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_sqs_queue.dead_letter["blue"]',
+                  index: 'blue',
+                  values: null,
+                },
+                {
+                  address: 'aws_sqs_queue.dead_letter["green"]',
+                  index: 'green',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [replayProjection]: {
+          id: replayProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.sqs:replay',
+            label: 'replay',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.sqs',
+              groupKey: 'aws.sqs:replay',
+              rootNodeId: replay0,
+              anchors: [
+                {
+                  nodeId: replay0,
+                  address: 'aws_sqs_queue.replay[0]',
+                  role: 'root_node',
+                },
+                {
+                  nodeId: replay1,
+                  address: 'aws_sqs_queue.replay[1]',
+                  role: 'root_node',
+                },
+              ],
+            },
+          },
+        },
+        [deadLetterProjection]: {
+          id: deadLetterProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.sqs:dead_letter',
+            label: 'dead_letter',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.sqs',
+              groupKey: 'aws.sqs:dead_letter',
+              rootNodeId: deadBlue,
+              anchors: [
+                {
+                  nodeId: deadBlue,
+                  address: 'aws_sqs_queue.dead_letter["blue"]',
+                  role: 'root_node',
+                },
+                {
+                  nodeId: deadGreen,
+                  address: 'aws_sqs_queue.dead_letter["green"]',
+                  role: 'root_node',
+                },
+              ],
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: 'logical-routes' as never,
+          from: replayProjection,
+          to: deadLetterProjection,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+                evidence: {
+                  derivedBy: 'anchor_path',
+                  evidenceCount: 1,
+                  shortestPathLength: 1,
+                  viaResourceTypes: ['aws_sqs_queue'],
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
+    const replay0Projection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:replay[0]',
+    );
+    const replay1Projection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:replay[1]',
+    );
+    const deadBlueProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:dead_letter["blue"]',
+    );
+    const deadGreenProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.sqs:dead_letter["green"]',
+    );
+
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay0Projection && edge.to === deadBlueProjection,
+      ),
+    ).toBe(true);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay0Projection && edge.to === deadGreenProjection,
+      ),
+    ).toBe(false);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay1Projection && edge.to === deadBlueProjection,
+      ),
+    ).toBe(false);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === replay1Projection && edge.to === deadGreenProjection,
+      ),
+    ).toBe(true);
+  });
+
+  it('should cover remaining materialization edge branches', () => {
+    const indexedRoot = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.indexed["blue"]',
+    );
+    const singletonRoot = tgNodeIdFrom(
+      'resource',
+      'aws_lambda_function.singleton',
+    );
+    const plainTarget = tgNodeIdFrom('resource', 'aws_iam_role.plain');
+    const indexedProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:indexed',
+    );
+    const singletonProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:singleton',
+    );
+    const plainProjection = tgProjectionNodeIdFrom(
+      'core',
+      'aws.iam_role:plain',
+    );
+
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [indexedRoot]: {
+          id: indexedRoot,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.indexed["blue"]',
+            resource: 'aws_lambda_function',
+            name: 'indexed["blue"]',
+          },
+        },
+        [singletonRoot]: {
+          id: singletonRoot,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.singleton',
+            resource: 'aws_lambda_function',
+            name: 'singleton',
+          },
+        },
+        [plainTarget]: {
+          id: plainTarget,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_iam_role.plain',
+            resource: 'aws_iam_role',
+            name: 'plain',
+          },
+        },
+        [indexedProjection]: {
+          id: indexedProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:indexed',
+            label: 'indexed',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:indexed',
+              rootNodeId: indexedRoot,
+              anchors: [{ nodeId: indexedRoot, role: 'root_node' }],
+            },
+          },
+        },
+        [singletonProjection]: {
+          id: singletonProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:singleton',
+            label: 'singleton',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:singleton',
+              rootNodeId: singletonRoot,
+              anchors: [{ nodeId: singletonRoot, role: 'root_node' }],
+            },
+          },
+        },
+        [plainProjection]: {
+          id: plainProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.iam_role:plain',
+            label: 'plain',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.iam_role',
+              groupKey: 'aws.iam_role:plain',
+              rootNodeId: plainTarget,
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: 'edge-indexed-plain' as never,
+          from: indexedProjection,
+          to: plainTarget,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+                evidence: {
+                  derivedBy: 'anchor_path',
+                  evidenceCount: 1,
+                  shortestPathLength: 1,
+                  viaResourceTypes: [],
+                },
+              },
+            },
+          },
+        },
+        {
+          id: 'edge-singleton-plain-projection' as never,
+          from: singletonProjection,
+          to: plainProjection,
+          attributes: {
+            projection: {
+              layer: 'core',
+              adjacency: {
+                source: 'derived',
+                evidence: {
+                  derivedBy: 'anchor_path',
+                  evidenceCount: 1,
+                  shortestPathLength: 1,
+                  viaResourceTypes: [],
+                },
+              },
+            },
+          },
+        },
+        {
+          id: 'edge-indexed-singleton-membership' as never,
+          from: indexedProjection,
+          to: singletonProjection,
+          attributes: {
+            projection: {
+              layer: 'core',
+              membership: {
+                relation: 'contributes_to',
+                source: 'derived',
+              },
+            },
+          },
+        },
+      ],
+    };
+
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+      },
+    });
+    const resolver = new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    );
+    const result = resolver.resolve({ graph, phases: [[rule]] }).toTgGraph();
+
+    const indexedInstance = tgProjectionNodeIdFrom(
+      'core',
+      'aws.lambda:indexed["blue"]',
+    );
+    expect(result.nodes[indexedInstance]?.projection?.derivation).toMatchObject(
+      {
+        source: DefaultProjectionDerivationSources.Plugin,
+        instanceKey: 'blue',
+      },
+    );
+    expect(
+      result.edges.some(
+        (edge) => edge.from === indexedInstance && edge.to === plainTarget,
+      ),
+    ).toBe(false);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === indexedInstance &&
+          edge.to === plainProjection &&
+          edge.attributes?.projection?.adjacency,
+      ),
+    ).toBe(false);
+    expect(
+      result.edges.some(
+        (edge) =>
+          edge.from === indexedRoot &&
+          edge.to === indexedInstance &&
+          edge.attributes?.projection?.membership?.relation === 'realizes',
+      ),
+    ).toBe(true);
+  });
+
+  it('shoud resolve async options providers during projection materialization', async () => {
+    const rootNode = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+    const logicalProjection = tgProjectionNodeIdFrom('core', 'aws.lambda:fn');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [rootNode]: {
+          id: rootNode,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.handler',
+            resource: 'aws_lambda_function',
+            name: 'handler',
+            state: {
+              source: 'state_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.handler["blue"]',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [logicalProjection]: {
+          id: logicalProjection,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:fn',
+            label: 'fn',
+            derivation: {
+              source: DefaultProjectionDerivationSources.Plugin,
+              projectionName: 'aws.lambda',
+              groupKey: 'aws.lambda:fn',
+              anchors: [{ nodeId: rootNode, role: 'root_node' }],
+            },
+          },
+        },
+      },
+      edges: [],
+    };
+    const rule = new MaterializeProjectionInstances({
+      options: {
+        getRuleOptions: async () => ({
+          instanceStrategy: ProjectionInstanceStrategies.MatchByKey,
+        }),
+      },
+    });
+    const resolved = await new GraphResolver(
+      new GraphologyAdapter(new DirectedGraph()),
+    ).resolveAsync({
+      graph,
+      phases: [[rule]],
+    });
+
+    expect(
+      resolved.getNodeAttributes(
+        tgProjectionNodeIdFrom('core', 'aws.lambda:fn["blue"]'),
+      )?.projection?.derivation?.source,
+    ).toBe(DefaultProjectionDerivationSources.Plugin);
+  });
+});
+
+describe('MaterializeProjectionInstances.apply', () => {
+  it.each(
+    Object.values(DefaultProjectionDerivationSources).flatMap((source) =>
+      [false, true].map((materializedPeer) => ({ source, materializedPeer })),
+    ),
+  )(
+    'shoud preserve $source provenance and edges to an AI projection with materializedPeer=$materializedPeer',
+    ({ source, materializedPeer }) => {
+      const bucketRoot = tgNodeIdFrom('resource', 'aws_s3_bucket.site[0]');
+      const peerAddress = materializedPeer
+        ? 'aws_cloudfront_distribution.site[0]'
+        : 'aws_cloudfront_distribution.site';
+      const peerRoot = tgNodeIdFrom('resource', peerAddress);
+      const bucketProjection = tgProjectionNodeIdFrom('core', 'aws.s3:site');
+      const bucketInstance = tgProjectionNodeIdFrom('core', 'aws.s3:site[0]');
+      const peerProjection = tgProjectionNodeIdFrom(
+        'core',
+        materializedPeer ? 'aws.cloudfront:site[0]' : 'aws.cloudfront:site',
+      );
+      const graph: TgGraph = {
+        schemaVersion: TG_SCHEMA_VERSION,
+        description: {},
+        nodes: {
+          [bucketRoot]: {
+            id: bucketRoot,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_s3_bucket.site[0]',
+              resource: 'aws_s3_bucket',
+            },
+          },
+          [peerRoot]: {
+            id: peerRoot,
+            terraform: {
+              kind: 'resource',
+              address: peerAddress,
+              resource: 'aws_cloudfront_distribution',
+            },
+          },
+          [bucketProjection]: {
+            id: bucketProjection,
+            projection: {
+              layer: 'core',
+              address: 'aws.s3:site',
+              label: 'site',
+              derivation: {
+                source,
+                projectionName: 'aws.s3',
+                groupKey: 'aws.s3:site',
+                rootNodeId: bucketRoot,
+              },
+            },
+          },
+          [peerProjection]: {
+            id: peerProjection,
+            projection: {
+              layer: 'core',
+              address: materializedPeer
+                ? 'aws.cloudfront:site[0]'
+                : 'aws.cloudfront:site',
+              label: 'cloudfront',
+              derivation: {
+                source: DefaultProjectionDerivationSources.Ai,
+                projectionName: 'aws.cloudfront',
+                rootNodeId: peerRoot,
+                ...(materializedPeer
+                  ? {
+                      rootInstanceAddress: peerAddress,
+                      instanceKey: '0',
+                      instanceOrdinal: 0,
+                    }
+                  : {}),
+              },
+            },
+          },
+        },
+        edges: [
+          {
+            id: edgeIdFrom(peerProjection, bucketProjection, 'adjacency'),
+            from: peerProjection,
+            to: bucketProjection,
+            attributes: {
+              projection: {
+                layer: 'core',
+                adjacency: {
+                  source: 'derived',
+                  evidence: {
+                    derivedBy: 'anchor_path',
+                    evidenceCount: 1,
+                    shortestPathLength: 1,
+                    viaResourceTypes: [],
+                  },
+                },
+              },
+            },
+          },
+          {
+            id: edgeIdFrom(bucketProjection, peerProjection, 'relationship'),
+            from: bucketProjection,
+            to: peerProjection,
+            attributes: {
+              projection: {
+                layer: 'core',
+                relationship: { relation: 'origin', source: 'derived' },
+              },
+            },
+          },
+        ],
+      };
+      const materialize = (input: TgGraph): TgGraph =>
+        new GraphResolver(new GraphologyAdapter())
+          .resolve({
+            graph: input,
+            phases: [
+              [
+                new MaterializeProjectionInstances({
+                  options: { instanceStrategy: 'match_by_key' },
+                }),
+              ],
+            ],
+          })
+          .toTgGraph();
+
+      const result = materialize(graph);
+
+      expect(result.nodes[bucketProjection]).toBeUndefined();
+      expect(
+        result.nodes[bucketInstance]?.projection?.derivation,
+      ).toMatchObject({
+        source,
+        projectionName: 'aws.s3',
+        groupKey: 'aws.s3:site',
+        rootInstanceAddress: 'aws_s3_bucket.site[0]',
+        instanceKey: '0',
+        instanceOrdinal: 0,
+      });
+      expect(result.nodes[peerProjection]).toEqual(graph.nodes[peerProjection]);
+      expect(result.edges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            from: peerProjection,
+            to: bucketInstance,
+            attributes: graph.edges[0].attributes,
+          }),
+          expect.objectContaining({
+            from: bucketInstance,
+            to: peerProjection,
+            attributes: graph.edges[1].attributes,
+          }),
+        ]),
+      );
+      expect(materialize(result)).toEqual(result);
+    },
+  );
+});
+
+describe('MaterializeProjectionInstances.apply', () => {
+  const resolve = (graph: TgGraph): TgGraph =>
+    new GraphResolver(new GraphologyAdapter())
+      .resolve({
+        graph,
+        phases: [
+          [
+            new MaterializeProjectionInstances({
+              options: { instanceStrategy: 'match_by_key' },
+            }),
+          ],
+        ],
+      })
+      .toTgGraph();
+
+  it.each([
+    {
+      name: 'matching subset',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: ['aws_lambda_permission.invoke["blue"]'],
+      targets: ['blue'],
+    },
+    {
+      name: 'disjoint explicit keys with equal ordinals',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: [
+        'aws_lambda_permission.invoke["red"]',
+        'aws_lambda_permission.invoke["orange"]',
+      ],
+      targets: [],
+    },
+    {
+      name: 'module singleton shared among child instances',
+      roots: [
+        'module.worker["blue"].aws_lambda_function.handler[0]',
+        'module.worker["blue"].aws_lambda_function.handler[1]',
+        'module.worker["green"].aws_lambda_function.handler[0]',
+      ],
+      members: ['module.worker["blue"].aws_lambda_permission.invoke'],
+      targets: ['blue/0', 'blue/1'],
+    },
+    {
+      name: 'count subset',
+      roots: [
+        'aws_lambda_function.handler[0]',
+        'aws_lambda_function.handler[1]',
+      ],
+      members: ['aws_lambda_permission.invoke[1]'],
+      targets: ['1'],
+    },
+    {
+      name: 'module scoped members',
+      roots: [
+        'module.worker["blue"].aws_lambda_function.handler[0]',
+        'module.worker["green"].aws_lambda_function.handler[0]',
+      ],
+      members: ['module.worker["green"].aws_lambda_permission.invoke["event"]'],
+      targets: ['green'],
+    },
+    {
+      name: 'shared singleton',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: ['aws_lambda_permission.invoke'],
+      targets: ['blue', 'green'],
+    },
+    {
+      name: 'empty state fallback',
+      roots: [
+        'aws_lambda_function.handler["blue"]',
+        'aws_lambda_function.handler["green"]',
+      ],
+      members: [],
+      targets: ['blue', 'green'],
+    },
+    {
+      name: 'single replacement with independent permission keys',
+      roots: ['aws_lambda_function.handler[0]'],
+      members: ['aws_lambda_permission.invoke["event"]'],
+      targets: ['0'],
+    },
+  ])(
+    'shoud transfer $name without changing canonical nodes or membership attributes',
+    ({ roots, members, targets }) => {
+      const root = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+      const member = tgNodeIdFrom('resource', 'aws_lambda_permission.invoke');
+      const logical = tgProjectionNodeIdFrom('core', 'aws.lambda:handler');
+      const graph: TgGraph = {
+        schemaVersion: TG_SCHEMA_VERSION,
+        description: {},
+        nodes: {
+          [root]: {
+            id: root,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_lambda_function.handler',
+              resource: 'aws_lambda_function',
+              name: 'handler',
+              state: {
+                source: 'plan_show',
+                effective: null,
+                instances: roots.map((address) => ({ address, values: null })),
+              },
+            },
+          },
+          [member]: {
+            id: member,
+            terraform: {
+              kind: 'resource',
+              address: 'aws_lambda_permission.invoke',
+              resource: 'aws_lambda_permission',
+              name: 'invoke',
+              state: {
+                source: 'plan_show',
+                effective: null,
+                instances: members.map((address) => ({
+                  address,
+                  values: null,
+                })),
+              },
+            },
+          },
+          [logical]: {
+            id: logical,
+            projection: {
+              layer: 'core',
+              address: 'aws.lambda:handler',
+              label: 'Handler',
+              derivation: {
+                source: 'plugin',
+                projectionName: 'aws.lambda',
+                rootNodeId: root,
+              },
+            },
+          },
+        },
+        edges: [
+          {
+            id: edgeIdFrom(member, logical, 'membership'),
+            from: member,
+            to: logical,
+            attributes: {
+              projection: {
+                layer: 'core',
+                membership: { relation: 'contributes_to', source: 'derived' },
+              },
+              adapter: { custom: { provenance: 'permission rule' } },
+              customAttribute: 'preserved',
+            },
+          },
+        ],
+      };
+
+      const result = resolve(graph);
+      expect(result.nodes[logical]).toBeUndefined();
+      expect(result.nodes[root]).toEqual(graph.nodes[root]);
+      expect(result.nodes[member]).toEqual(graph.nodes[member]);
+      const memberships = result.edges.filter(
+        (edge) =>
+          edge.attributes?.projection?.membership?.relation ===
+          'contributes_to',
+      );
+      expect(
+        memberships
+          .map(
+            (edge) => result.nodes[edge.to].projection?.derivation?.instanceKey,
+          )
+          .sort(),
+      ).toEqual([...targets].sort());
+      for (const edge of memberships) {
+        expect(edge.from).toBe(member);
+        expect(edge.attributes).toEqual(graph.edges[0].attributes);
+      }
+      expect(
+        result.edges.filter(
+          (edge) =>
+            edge.from === root &&
+            edge.attributes?.projection?.membership?.relation === 'realizes',
+        ),
+      ).toHaveLength(roots.length);
+      expect(resolve(result)).toEqual(result);
+    },
+  );
+
+  it('shoud preserve explicitly indexed canonical membership on only its matching module instance', () => {
+    const root = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+    const address = 'module.worker["green"].aws_lambda_permission.invoke[0]';
+    const member = tgNodeIdFrom('resource', address);
+    const logical = tgProjectionNodeIdFrom('core', 'aws.lambda:handler');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [root]: {
+          id: root,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_function.handler',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: ['blue', 'green'].flatMap((key) =>
+                [0, 1].map((index) => ({
+                  address: `module.worker[${JSON.stringify(key)}].aws_lambda_function.handler[${index}]`,
+                  values: null,
+                })),
+              ),
+            },
+          },
+        },
+        [member]: { id: member, terraform: { kind: 'resource', address } },
+        [logical]: {
+          id: logical,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:handler',
+            label: 'Handler',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.lambda',
+              rootNodeId: root,
+            },
+          },
+        },
+      },
+      edges: [
+        {
+          id: edgeIdFrom(member, logical, 'membership'),
+          from: member,
+          to: logical,
+          attributes: {
+            projection: {
+              layer: 'core',
+              membership: { relation: 'contributes_to', source: 'derived' },
+            },
+          },
+        },
+      ],
+    };
+    const result = resolve(graph);
+    const memberships = result.edges.filter((edge) => edge.from === member);
+    expect(memberships).toHaveLength(1);
+    expect(
+      result.nodes[memberships[0].to].projection?.derivation?.instanceKey,
+    ).toBe('green/0');
+  });
+
+  it('shoud preserve Lambda permission membership through derivation and instance materialization', () => {
+    const root = tgNodeIdFrom('resource', 'aws_lambda_function.handler');
+    const member = tgNodeIdFrom('resource', 'aws_lambda_permission.invoke');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        [root]: {
+          id: root,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_lambda_function',
+            address: 'aws_lambda_function.handler',
+            name: 'handler',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_function.handler[0]',
+                  index: 0,
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+        [member]: {
+          id: member,
+          terraform: {
+            kind: 'resource',
+            resource: 'aws_lambda_permission',
+            address: 'aws_lambda_permission.invoke',
+            state: {
+              source: 'plan_show',
+              effective: null,
+              instances: [
+                {
+                  address: 'aws_lambda_permission.invoke["EventBridge"]',
+                  index: 'EventBridge',
+                  values: null,
+                },
+              ],
+            },
+          },
+        },
+      },
+      edges: [
+        { id: edgeIdFrom(member, root, 'dependency'), from: member, to: root },
+      ],
+    };
+    const derived = new GraphResolver(new GraphologyAdapter())
+      .resolve({
+        graph,
+        phases: [
+          [
+            new DeriveProjectionGraph({
+              options: {
+                instanceStrategy: 'none',
+                projections: [
+                  {
+                    name: 'aws.lambda',
+                    rootNode: {
+                      attr: {
+                        key: 'terraform.resource',
+                        eq: 'aws_lambda_function',
+                      },
+                    },
+                    membership: {
+                      maxDepth: 2,
+                      includeResources: ['aws_lambda_*'],
+                    },
+                  },
+                ],
+              },
+            }),
+          ],
+        ],
+      })
+      .toTgGraph();
+    const membership = derived.edges.find(
+      (edge) =>
+        edge.from === member &&
+        edge.attributes?.projection?.membership?.relation === 'contributes_to',
+    );
+    expect(membership).toBeDefined();
+    const result = resolve(derived);
+    expect(result.nodes[membership?.to as NodeId]).toBeUndefined();
+    const retained = result.edges.find(
+      (edge) =>
+        edge.from === member &&
+        edge.attributes?.projection?.membership?.relation === 'contributes_to',
+    );
+    expect(retained?.attributes).toEqual(membership?.attributes);
+    expect(
+      result.nodes[retained?.to as NodeId].projection?.derivation
+        ?.rootInstanceAddress,
+    ).toBe('aws_lambda_function.handler[0]');
+    expect(result.edges).toContainEqual(
+      expect.objectContaining({ from: member, to: root }),
+    );
+  });
+});
+
+describe('MaterializeProjectionInstances.apply', () => {
+  it('shoud match ordinal-only roots and omit a member with no address', () => {
+    const roots = [
+      tgNodeIdFrom('resource', 'root_a'),
+      tgNodeIdFrom('resource', 'root_b'),
+    ];
+    const member = tgNodeIdFrom('resource', 'aws_lambda_permission.invoke[1]');
+    const unknown = tgNodeIdFrom('resource', 'unknown_member');
+    const logical = tgProjectionNodeIdFrom('core', 'aws.lambda:handler');
+    const graph: TgGraph = {
+      schemaVersion: TG_SCHEMA_VERSION,
+      description: {},
+      nodes: {
+        ...Object.fromEntries(
+          roots.map((id) => [
+            id,
+            { id, terraform: { kind: 'resource' as const } },
+          ]),
+        ),
+        [member]: {
+          id: member,
+          terraform: {
+            kind: 'resource',
+            address: 'aws_lambda_permission.invoke[1]',
+          },
+        },
+        [unknown]: { id: unknown, terraform: { kind: 'resource' } },
+        [logical]: {
+          id: logical,
+          projection: {
+            layer: 'core',
+            address: 'aws.lambda:handler',
+            label: 'Handler',
+            derivation: {
+              source: 'plugin',
+              projectionName: 'aws.lambda',
+              anchors: roots.map((nodeId) => ({ nodeId, role: 'root_node' })),
+            },
+          },
+        },
+      },
+      edges: [member, unknown].map((from) => ({
+        id: edgeIdFrom(from, logical, 'membership'),
+        from,
+        to: logical,
+        attributes: {
+          projection: {
+            layer: 'core',
+            membership: { relation: 'contributes_to', source: 'derived' },
+          },
+        },
+      })),
+    };
+    const result = new GraphResolver(new GraphologyAdapter())
+      .resolve({
+        graph,
+        phases: [
+          [
+            new MaterializeProjectionInstances({
+              options: { instanceStrategy: 'match_by_key' },
+            }),
+          ],
+        ],
+      })
+      .toTgGraph();
+    expect(result.edges.filter((edge) => edge.from === unknown)).toEqual([]);
+    const memberships = result.edges.filter((edge) => edge.from === member);
+    expect(memberships).toHaveLength(1);
+    expect(
+      result.nodes[memberships[0].to].projection?.derivation?.instanceOrdinal,
+    ).toBe(1);
+  });
+});

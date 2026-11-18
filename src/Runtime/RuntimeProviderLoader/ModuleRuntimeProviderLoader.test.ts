@@ -1,0 +1,643 @@
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { Module } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { RendererRegistry } from '../../Graph/Renderers/RendererRegistry.js';
+import { WriterRegistry } from '../../Output/Writers/WriterRegistry.js';
+import { ModuleRuntimeProviderLoader } from './ModuleRuntimeProviderLoader.js';
+
+type ModuleRuntimeProviderLoaderPrivate = {
+  toProvider(value: unknown): Promise<unknown>;
+  resolveImportSpecifier(specifier: string, sourceReference?: string): string;
+  hasProviderShape(value: unknown): boolean;
+  resolveEsmEntryPathFromResolvedFile(resolvedFile: string): string | undefined;
+  readEntryPoint(value: unknown, key: string): string | undefined;
+};
+
+const asPrivate = (
+  loader: ModuleRuntimeProviderLoader,
+): ModuleRuntimeProviderLoaderPrivate =>
+  loader as unknown as ModuleRuntimeProviderLoaderPrivate;
+
+describe('ModuleRuntimeProviderLoader.load', () => {
+  it('shoud reject a provider with no resolvable package version', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-unversioned-'));
+    await mkdir(join(dir, 'nested'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ name: 'unversioned' }),
+    );
+    const providerPath = join(dir, 'nested/provider.cjs');
+    await writeFile(providerPath, 'module.exports = {}');
+    try {
+      await expect(
+        new ModuleRuntimeProviderLoader().load({ specifier: providerPath }),
+      ).rejects.toThrow('no package name/version');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud treat renderer and writer registries as provider shape', () => {
+    const loader = new ModuleRuntimeProviderLoader();
+
+    expect(
+      asPrivate(loader).hasProviderShape({
+        renderers: new RendererRegistry(),
+      }),
+    ).toBe(true);
+    expect(
+      asPrivate(loader).hasProviderShape({
+        writers: new WriterRegistry(),
+      }),
+    ).toBe(true);
+  });
+
+  it('shoud load a provider from a module default object export', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+
+    await writeFile(
+      providerPath,
+      'module.exports = { supportedAdapterOperationsRegistry: { ExternalAdapter: class ExternalAdapter {} } };',
+      'utf8',
+    );
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({ specifier: providerPath });
+
+      expect(provider.dependency).toEqual({
+        name: 'test-provider',
+        version: '1.0.0',
+      });
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('ExternalAdapter');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud load a provider from a runtimeProvider named export', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+
+    await writeFile(
+      providerPath,
+      'module.exports = { runtimeProvider: { supportedAdapterOperationsRegistry: { NamedExport: class NamedExport {} } } };',
+      'utf8',
+    );
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({ specifier: providerPath });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('NamedExport');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud accept raw runtime providers without module export markers', async () => {
+    const provider = {};
+    const loader = new ModuleRuntimeProviderLoader();
+    await expect(asPrivate(loader).toProvider(provider)).resolves.toBe(
+      provider,
+    );
+  });
+
+  it('shoud load a provider from a default function export', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+
+    await writeFile(
+      providerPath,
+      'module.exports = () => ({ supportedAdapterOperationsRegistry: { FromDefault: class FromDefault {} } });',
+      'utf8',
+    );
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({ specifier: providerPath });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('FromDefault');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud load a provider from a file URL specifier', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+
+    await writeFile(
+      providerPath,
+      'module.exports = { supportedAdapterOperationsRegistry: { FileUrlProvider: class FileUrlProvider {} } };',
+      'utf8',
+    );
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({
+        specifier: pathToFileURL(providerPath).href,
+      });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('FileUrlProvider');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve relative provider specifiers from cwd when no reference is provided', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+    const originalCwd = process.cwd();
+
+    await writeFile(
+      providerPath,
+      'module.exports = { supportedAdapterOperationsRegistry: { CwdProvider: class CwdProvider {} } };',
+      'utf8',
+    );
+
+    try {
+      process.chdir(dir);
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({ specifier: './provider.cjs' });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('CwdProvider');
+    } finally {
+      process.chdir(originalCwd);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve relative provider specifiers from sourceReference', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const configPath = join(dir, 'runtime.yaml');
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+
+    await writeFile(
+      providerPath,
+      'module.exports = { supportedAdapterOperationsRegistry: { RelativeProvider: class RelativeProvider {} } };',
+      'utf8',
+    );
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({
+        specifier: './provider.cjs',
+        sourceReference: configPath,
+      });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('RelativeProvider');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve package providers from sourceReference', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'package-provider');
+    const configPath = join(dir, 'runtime.yml');
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'package-provider',
+        version: '1.0.0',
+        exports: {
+          import: './index.cjs',
+          require: './index.cjs',
+          default: './index.cjs',
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.cjs'),
+      'module.exports = { supportedAdapterOperationsRegistry: { FromPackage: class FromPackage {} } };',
+      'utf8',
+    );
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({
+        specifier: 'package-provider',
+        sourceReference: configPath,
+      });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('FromPackage');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve package providers from cwd when no reference is provided', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'cwd-provider');
+    const originalCwd = process.cwd();
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'cwd-provider',
+        version: '1.0.0',
+        exports: {
+          import: './index.cjs',
+          require: './index.cjs',
+          default: './index.cjs',
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.cjs'),
+      'module.exports = { supportedAdapterOperationsRegistry: { FromCwdPackage: class FromCwdPackage {} } };',
+      'utf8',
+    );
+
+    try {
+      process.chdir(dir);
+      const loader = new ModuleRuntimeProviderLoader();
+      const provider = await loader.load({ specifier: 'cwd-provider' });
+
+      expect(provider.supportedAdapterOperationsRegistry).toBeDefined();
+      expect(
+        provider.supportedAdapterOperationsRegistry
+          ? Object.keys(provider.supportedAdapterOperationsRegistry)
+          : [],
+      ).toContain('FromCwdPackage');
+    } finally {
+      process.chdir(originalCwd);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve ESM-only package specifiers without loading', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'esm-only');
+    const configPath = join(dir, 'runtime.yml');
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'esm-only',
+        version: '1.0.0',
+        type: 'module',
+        exports: {
+          '.': {
+            import: './index.mjs',
+            default: './index.mjs',
+          },
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.mjs'),
+      'export default {};',
+      'utf8',
+    );
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const resolved = asPrivate(loader).resolveImportSpecifier(
+        'esm-only',
+        configPath,
+      );
+      const resolvedPath = await realpath(fileURLToPath(resolved));
+      const expectedPath = await realpath(join(packageDir, 'index.mjs'));
+      expect(resolvedPath).toBe(expectedPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud resolve package providers from file URL sourceReference', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'file-url-provider');
+    const configPath = join(dir, 'runtime.yml');
+
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'file-url-provider',
+        version: '1.0.0',
+        exports: {
+          import: './index.cjs',
+          require: './index.cjs',
+          default: './index.cjs',
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(packageDir, 'index.cjs'),
+      'module.exports = {};',
+      'utf8',
+    );
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const resolved = asPrivate(loader).resolveImportSpecifier(
+        'file-url-provider',
+        pathToFileURL(configPath).href,
+      );
+      const resolvedPath = await realpath(fileURLToPath(resolved));
+      const expectedPath = await realpath(join(packageDir, 'index.cjs'));
+      expect(resolvedPath).toBe(expectedPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud fall back to specifier when package cannot be resolved', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const configPath = join(dir, 'runtime.yml');
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const resolved = asPrivate(loader).resolveImportSpecifier(
+        'missing-package',
+        configPath,
+      );
+      expect(resolved).toBe('missing-package');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud fall back when module resolve APIs are unavailable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const configPath = join(dir, 'runtime.yml');
+    await writeFile(configPath, 'providers: []', 'utf8');
+
+    const moduleApi = Module as typeof Module & {
+      _resolveFilename?: unknown;
+      _nodeModulePaths?: unknown;
+    };
+    const originalResolve = moduleApi._resolveFilename;
+    const originalPaths = moduleApi._nodeModulePaths;
+
+    try {
+      moduleApi._resolveFilename = undefined;
+      moduleApi._nodeModulePaths = undefined;
+
+      const loader = new ModuleRuntimeProviderLoader();
+      const resolved = asPrivate(loader).resolveImportSpecifier(
+        'missing-package',
+        configPath,
+      );
+      expect(resolved).toBe('missing-package');
+    } finally {
+      moduleApi._resolveFilename = originalResolve;
+      moduleApi._nodeModulePaths = originalPaths;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud accept non-file specifiers unchanged', async () => {
+    const loader = new ModuleRuntimeProviderLoader();
+    const provider = await loader.load({ specifier: 'node:fs' });
+
+    expect(provider).toBeDefined();
+    expect((provider as { readFile?: unknown }).readFile).toBeDefined();
+  });
+
+  it('shoud return false when checking provider shape of a primitive', () => {
+    const loader = new ModuleRuntimeProviderLoader();
+    expect(asPrivate(loader).hasProviderShape(1)).toBe(false);
+  });
+
+  it('shoud unwrap nested default objects before returning a provider', async () => {
+    const provider = {
+      supportedAdapterOperationsRegistry: {
+        NestedDefaultProvider: class NestedDefaultProvider {},
+      },
+    };
+    const loader = new ModuleRuntimeProviderLoader();
+    await expect(
+      asPrivate(loader).toProvider({ default: { default: provider } }),
+    ).resolves.toBe(provider);
+  });
+
+  it('shoud prefer ESM import entrypoint from package exports root when present', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'esm-entry-provider');
+    const resolvedFile = join(packageDir, 'dist', 'index.cjs');
+    const importEntry = join(packageDir, 'esm', 'index.mjs');
+
+    await mkdir(join(packageDir, 'dist'), { recursive: true });
+    await mkdir(join(packageDir, 'esm'), { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'esm-entry-provider',
+        version: '1.0.0',
+        exports: {
+          '.': {
+            import: './esm/index.mjs',
+            require: './dist/index.cjs',
+          },
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(resolvedFile, 'module.exports = {};', 'utf8');
+    await writeFile(importEntry, 'export default {};', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const resolved =
+        asPrivate(loader).resolveEsmEntryPathFromResolvedFile(resolvedFile);
+      expect(resolved).toBe(importEntry);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud continue walking when declared import entrypoint is missing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    const packageDir = join(dir, 'node_modules', 'missing-esm-entry-provider');
+    const resolvedFile = join(packageDir, 'dist', 'index.cjs');
+
+    await mkdir(join(packageDir, 'dist'), { recursive: true });
+    await writeFile(
+      join(packageDir, 'package.json'),
+      JSON.stringify({
+        name: 'missing-esm-entry-provider',
+        version: '1.0.0',
+        exports: {
+          '.': {
+            import: './esm/index.mjs',
+            require: './dist/index.cjs',
+          },
+        },
+      }),
+      'utf8',
+    );
+    await writeFile(resolvedFile, 'module.exports = {};', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+      const resolved =
+        asPrivate(loader).resolveEsmEntryPathFromResolvedFile(resolvedFile);
+      expect(resolved).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud read string and object entrypoint shapes', () => {
+    const loader = new ModuleRuntimeProviderLoader();
+    expect(
+      asPrivate(loader).readEntryPoint('./dist/esm/index.js', 'import'),
+    ).toBe(undefined);
+    expect(
+      asPrivate(loader).readEntryPoint('./dist/esm/index.js', 'module'),
+    ).toBe('./dist/esm/index.js');
+    expect(
+      asPrivate(loader).readEntryPoint(
+        { import: './dist/esm/index.js' },
+        'import',
+      ),
+    ).toBe('./dist/esm/index.js');
+  });
+
+  it('shoud throw when module does not export a runtime provider', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+
+    await writeFile(providerPath, 'module.exports = 1;', 'utf8');
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+
+      await expect(loader.load({ specifier: providerPath })).rejects.toThrow(
+        'Module does not export a valid runtime provider',
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('shoud throw when a provider factory resolves to an invalid value', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-provider-loader-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        name: 'test-provider',
+        version: '1.0.0',
+      }),
+    );
+    const providerPath = join(dir, 'provider.cjs');
+
+    await writeFile(
+      providerPath,
+      'module.exports = { runtimeProvider: () => 1 };',
+      'utf8',
+    );
+
+    try {
+      const loader = new ModuleRuntimeProviderLoader();
+
+      await expect(loader.load({ specifier: providerPath })).rejects.toThrow(
+        'Module does not export a valid runtime provider',
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
