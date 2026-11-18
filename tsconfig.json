@@ -16,5 +16,8 @@
   ],
   "ts-node": {
     "esm": true
-  }
+  },
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
 }

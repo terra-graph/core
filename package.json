@@ -22,25 +22,40 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js",
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      },
       "default": "./dist/esm/index.js"
     },
     "./*.js": {
-      "types": "./dist/esm/*.d.ts",
-      "import": "./dist/esm/*.js",
-      "require": "./dist/cjs/*.js",
+      "import": {
+        "types": "./dist/esm/*.d.ts",
+        "default": "./dist/esm/*.js"
+      },
+      "require": {
+        "types": "./dist/cjs/*.d.ts",
+        "default": "./dist/cjs/*.js"
+      },
       "default": "./dist/esm/*.js"
     }
   },
   "scripts": {
-    "build": "(rm -r ./dist || true) && yarn lint && yarn build:ci",
+    "build": "node -e \"require('node:fs').rmSync('dist', {recursive: true, force: true})\" && yarn build:ci",
     "build:ci": "tsc -p tsconfig.json && tsc -p tsconfig-commonjs.json && printf '{ \"type\": \"commonjs\" }' > dist/cjs/package.json",
-    "build:nolint": "(rm -r ./dist || true) && yarn build:ci",
-    "lint": "biome check --write",
-    "lint:ci": "biome check",
+    "build:nolint": "yarn build",
+    "lint": "biome check",
+    "lint:ci": "yarn lint",
     "test": "jest --coverage",
-    "test:watch": "yarn test --watchAll"
+    "test:watch": "yarn test --watchAll",
+    "format": "biome format --write",
+    "typecheck": "tsc -p tsconfig.verify.json --noEmit && tsc -p tsconfig-commonjs.json --noEmit",
+    "test:consumer": "node scripts/verify-consumer.mjs",
+    "verify": "yarn lint:ci && yarn typecheck && yarn build && yarn test && yarn test:consumer"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
@@ -49,26 +64,27 @@
     "@semantic-release/commit-analyzer": "^13.0.0",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.6",
-    "@semantic-release/npm": "^12.0.1",
+    "@semantic-release/npm": "13.2.0",
     "@semantic-release/release-notes-generator": "^14.0.2",
     "@types/graphlib-dot": "^0.6.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.10.0",
     "conventional-changelog-conventionalcommits": "^9.1.0",
-    "graphology-types": "^0.24.8",
     "jest": "^30.2.0",
     "jest-mock-extended": "^4.0.0",
-    "semantic-release": "^24.2.0",
+    "semantic-release": "25.0.9",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "npm": "11.21.2"
   },
   "dependencies": {
     "graphlib-dot": "^0.6.4",
     "graphology": "^0.26.0",
     "lodash": "^4.17.23",
     "yaml": "^2.8.2",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "graphology-types": "^0.24.8"
   },
   "release": {
     "branches": [
@@ -110,5 +126,6 @@
         }
       ]
     ]
-  }
+  },
+  "packageManager": "yarn@1.22.22"
 }
