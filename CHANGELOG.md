@@ -1,3 +1,23 @@
+# [1.0.0-rc.31]([secure]/compare/v1.0.0-rc.30...v1.0.0-rc.31) (2026-11-18)
+
+
+### Bug Fixes
+
+* determine uninstantiated data resources in plan ([026ba50]([secure]/commit/026ba50f18cf4f85f3d5f630dd670801f21b997d))
+* exclude non plan resource instances from graph ([5db11a0]([secure]/commit/5db11a0b82fa197b231b4b2ddd303ace7f1e2a40))
+* improve traversals using a queue instead of array functions ([fdc9b66]([secure]/commit/fdc9b66a4dd1358ec99c1cd7be000a727129d4a4))
+* profile descriptor with auto generated profiles ([3f48654]([secure]/commit/3f4865490abad58bc0fa71dadedfe43f1637c152))
+* projection materialisation ([9cd596a]([secure]/commit/9cd596a1422b6638545aa6dbd774dd9a74d78781))
+* Supporting memberships disappear during instance materialization ([d1e81cf]([secure]/commit/d1e81cfdfc710ba8b047ccb6736a97dbc0fe7454))
+
+
+### Features
+
+* add profile execution descriptor ([fb247e4]([secure]/commit/fb247e49eeb5ded11fc25a52c38e289aaf3b325d))
+* initial setup for alternative projection building methods ([61770d1]([secure]/commit/61770d12d14b25605ef312c4f662b1a229eca64a))
+* removed unused version.parentId ([f22ffce]([secure]/commit/f22ffcec6abe72bbbc2acf8ee000c83838cc974f))
+* tf plan changes diff ([0ff1f15]([secure]/commit/0ff1f15131ac394abd6f255f4049711c5098df95))
+
 # [1.0.0-rc.30](https://github.com/terra-graph/core/compare/v1.0.0-rc.29...v1.0.0-rc.30) (2026-06-07)
 
 
